@@ -13,7 +13,7 @@ from pathlib import Path
 from tkinter import filedialog
 import tkinter.messagebox as messagebox
 import webbrowser
-from typing import Union, Dict, Callable, List, Optional
+from typing import Union, Dict, Callable, List, Optional, Tuple
 
 import customtkinter as ctk
 import yaml
@@ -49,6 +49,60 @@ SCRIPT_PATHS = {
     "PDFIX_SCRIPT": "PDFix/PDFix.py",
     "CLEANUP_CACHE_SCRIPT": "Paleographer/CacheCleanup.py",
     "AGY_TEST_SCRIPT": "AntiquarianMCP/test_agy_connection.py",
+}
+
+
+def _args_paleographer_api(string_vars: Dict[str, "ctk.StringVar"], debug_file_var: "ctk.StringVar") -> List[str]:
+    debug_file = debug_file_var.get().strip()
+    return [debug_file] if debug_file else []
+
+
+def _args_analysis_enrich(string_vars: Dict[str, "ctk.StringVar"], debug_file_var: "ctk.StringVar") -> List[str]:
+    args = ["enrich", "--delay", "0.4"]
+    limit_val = string_vars.get("SCRIP_ENRICH_LIMIT", ctk.StringVar(value="")).get().strip()
+    if limit_val:
+        args.extend(["--limit", limit_val])
+    return args
+
+
+def _args_analysis_partition(string_vars: Dict[str, "ctk.StringVar"], debug_file_var: "ctk.StringVar") -> List[str]:
+    args = ["partition"]
+    out_dir_val = string_vars.get("SCRIP_PARTITION_OUTPUT_DIR", ctk.StringVar(value="")).get().strip()
+    if out_dir_val:
+        args.extend(["--output-dir", out_dir_val])
+    return args
+
+
+def _args_bare_mode(mode: str) -> Callable[[Dict[str, "ctk.StringVar"], "ctk.StringVar"], List[str]]:
+    def _inner(string_vars: Dict[str, "ctk.StringVar"], debug_file_var: "ctk.StringVar") -> List[str]:
+        return [mode]
+    return _inner
+
+
+def _args_voyageur_lac(string_vars: Dict[str, "ctk.StringVar"], debug_file_var: "ctk.StringVar") -> List[str]:
+    args = ["LAC"]
+    gather_url = string_vars.get("GATHER_URL", ctk.StringVar(value="")).get().strip()
+    if "heritage.canadiana.ca" in gather_url:
+        args.extend(["reel", "--url", gather_url])
+    elif gather_url:
+        args.extend(["volume", "--volume", gather_url])
+    return args
+
+
+# ARCH-2: declarative CLI-arg assembly. (script_key, mode) -> callable(string_vars,
+# debug_file_var) -> extra argv beyond the script path itself. A combination absent from
+# this table (e.g. every *_SCRIPT with mode "standalone") launches with no extra args,
+# matching the old if/elif chain's implicit fallthrough.
+ARG_SPECS: Dict[Tuple[str, str], Callable[[Dict[str, "ctk.StringVar"], "ctk.StringVar"], List[str]]] = {
+    ("ANALYSIS_SCRIPT", "paleographer_api"): _args_paleographer_api,
+    ("ANALYSIS_SCRIPT", "enrich"): _args_analysis_enrich,
+    ("ANALYSIS_SCRIPT", "partition"): _args_analysis_partition,
+    ("ANALYSIS_SCRIPT", "resolve-names"): _args_bare_mode("resolve-names"),
+    ("ANALYSIS_SCRIPT", "crosscheck"): _args_bare_mode("crosscheck"),
+    ("VOYAGEUR_SCRIPT", "A"): _args_bare_mode("A"),
+    ("VOYAGEUR_SCRIPT", "FS"): _args_bare_mode("FS"),
+    ("VOYAGEUR_SCRIPT", "HBCA"): _args_bare_mode("HBCA"),
+    ("VOYAGEUR_SCRIPT", "LAC"): _args_voyageur_lac,
 }
 
 
@@ -1992,33 +2046,9 @@ class Antiquarian(ctk.CTk):
             self.progress_row.grid_remove()
 
         args = [target_script_path]
-        if script_key == "ANALYSIS_SCRIPT":
-            if mode == "paleographer_api" and self.debug_file_var.get().strip():
-                args.append(self.debug_file_var.get().strip())
-            elif mode in ("enrich", "partition", "resolve-names", "crosscheck"):
-                args.append(mode)
-                if mode == "enrich":
-                    delay_val = "0.4"
-                    if delay_val:
-                        args.extend(["--delay", delay_val])
-                    limit_val = self.string_vars.get("SCRIP_ENRICH_LIMIT", ctk.StringVar(value="")).get().strip()
-                    if limit_val:
-                        args.extend(["--limit", limit_val])
-                elif mode == "partition":
-                    out_dir_val = self.string_vars.get(
-                        "SCRIP_PARTITION_OUTPUT_DIR", ctk.StringVar(value="")
-                    ).get().strip()
-                    if out_dir_val:
-                        args.extend(["--output-dir", out_dir_val])
-        elif script_key == "VOYAGEUR_SCRIPT":
-            # Voyageur.py is a thin dispatcher; the mode IS the source code (A/FS/LAC).
-            args.append(mode)
-            if mode == "LAC":
-                gather_url = self.string_vars.get("GATHER_URL", ctk.StringVar(value="")).get().strip()
-                if "heritage.canadiana.ca" in gather_url:
-                    args.extend(["reel", "--url", gather_url])
-                elif gather_url:
-                    args.extend(["volume", "--volume", gather_url])
+        arg_builder = ARG_SPECS.get((script_key, mode))
+        if arg_builder:
+            args.extend(arg_builder(self.string_vars, self.debug_file_var))
 
         target_cwd = os.path.dirname(target_script_path) if os.path.exists(target_script_path) else None
 
