@@ -845,6 +845,21 @@ def test_canadian_and_historical_hbc_birthplaces_are_not_foreign():
     assert is_foreign_birthplace("Ireland") is True
 
 
+def test_us_state_abbreviations_are_not_foreign():
+    """Regression: historical census sheets abbreviate state names (esp. Nationality-
+    column entries copied from a birthplace field), e.g. 'N Dak', 'Mass', 'Penna' -
+    these must resolve as domestic, not get treated as a foreign nationality string."""
+    from Census import is_foreign_birthplace
+
+    assert is_foreign_birthplace("N Dak") is False
+    assert is_foreign_birthplace("S. Dak.") is False
+    assert is_foreign_birthplace("No Dakota") is False
+    assert is_foreign_birthplace("Mass") is False
+    assert is_foreign_birthplace("Penna") is False
+    assert is_foreign_birthplace("Wash") is False
+    assert is_foreign_birthplace("Mich") is False
+
+
 def test_parent_birthplace_appends_second_birt_fact_to_existing_father(tmp_path, monkeypatch):
     """FTHR_BIR_PLACE/MTHR_BIR_PLACE describe the
     child's own father/mother, not the child's own facts. When that parent was already
@@ -1189,3 +1204,18 @@ def test_get_nationality_value_handles_nan_code_from_heterogeneous_dataframe():
     row_without_code = df.iloc[1]
     assert arc.get_nationality_value(row_with_code, birth_place='Ireland') == "Iceland"
     assert arc.get_nationality_value(row_without_code, birth_place='Ohio') == "Norway"
+
+
+def test_get_nationality_value_suppresses_us_state_text_in_nationality_field():
+    """Regression: some sheets have a US state abbreviation typed into the Nationality
+    column itself (e.g. 'N Dak'), not just the birthplace column - that text must not
+    be emitted verbatim as a foreign nationality."""
+    arc.CENSUS_YEAR = 1950
+    row = pd.Series({'Nationality': 'N Dak'})
+    assert arc.get_nationality_value(row, birth_place='') == ""
+
+
+def test_get_nationality_value_keeps_foreign_text_alongside_new_abbreviations():
+    arc.CENSUS_YEAR = 1950
+    row = pd.Series({'Nationality': 'Norwegian'})
+    assert arc.get_nationality_value(row, birth_place='') == "Norwegian"
