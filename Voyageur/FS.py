@@ -35,7 +35,6 @@ from urllib.parse import urlparse, urlencode, urlunparse
 
 import pandas as pd
 import yaml
-from dotenv import load_dotenv
 from thefuzz import fuzz
 
 import census_schema
@@ -58,6 +57,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from Commissioner import normalization  # noqa: E402
+from Commissioner.envkit import load_tool_env  # noqa: E402
 
 ANTIQUARIAN_DIR = Path(__file__).resolve().parent.parent
 FACT_TYPES_PATH = ANTIQUARIAN_DIR / "Commissioner" / "FactTypes.json"
@@ -912,8 +912,8 @@ def main() -> None:
     print(" Voyageur (FS) - FamilySearch Gather Automation")
     print("========================================")
 
-    load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
-    load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
+    # Tool .env overrides global .env (root first, tool second, both override=True).
+    load_tool_env(Path(__file__).resolve().parent)
 
     program_dir = os.getenv("PROGRAM_DIR", str(Path(__file__).resolve().parent.parent))
     genealogy_dir = os.getenv("GENEALOGY_DIR", "")

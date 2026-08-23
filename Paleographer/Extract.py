@@ -29,12 +29,15 @@ if str(_REPO_ROOT) not in sys.path:
 from AntiquarianMCP import agy_client  # noqa: E402
 
 from Commissioner import normalization  # noqa: E402
+from Commissioner.envkit import load_tool_env  # noqa: E402
 
 
 # Load global settings from project root .env and local settings from subfolder .env.
+# Tool .env overrides global .env (root first, tool second, both override=True) - see
+# Commissioner/envkit.py. ROOT_ENV stays defined: print_cost_line() re-reads it mid-run
+# to pick up a budget edited while extraction is in progress.
 ROOT_ENV = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(ROOT_ENV, override=True)
-load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+load_tool_env(Path(__file__).resolve().parent)
 
 
 # ==============================================================================

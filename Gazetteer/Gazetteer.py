@@ -14,20 +14,27 @@ import os
 import re
 import shutil
 import sqlite3
+import sys
 import warnings
 from pathlib import Path
 from typing import List, Optional
 
 import geopandas as gpd
-from dotenv import load_dotenv
 from shapely.geometry import Point
 from tqdm import tqdm
 
+# Commissioner lives in a sibling tool folder, not an installed package - add the repo
+# root to sys.path so its shared env loader can be imported whether this file was
+# launched standalone or routed through tool_runner.py.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from Commissioner.envkit import load_tool_env  # noqa: E402
+
 # Global settings come from the project root's .env; this tool's own settings come from
-# its own subfolder's .env, so Gazetteer stays runnable standalone. .env values override
-# anything already in the environment.
-load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
-load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+# its own subfolder's .env, so Gazetteer stays runnable standalone. Tool .env overrides
+# global .env (root first, tool second, both override=True) - see Commissioner/envkit.py.
+load_tool_env(Path(__file__).resolve().parent)
 
 
 # ==========================================

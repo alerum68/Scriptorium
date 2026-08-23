@@ -2076,7 +2076,13 @@ class Antiquarian(ctk.CTk):
         except ValueError:
             module_name = script_path
 
-        new_cmd = [sys.executable, __file__, "--module", module_name] + safe_cmd[1:]
+        # BUG-4/ARCH-1: spawn the dedicated tool_runner.py shim instead of re-executing
+        # this GUI file with a --module flag - the old self-relaunch made every child
+        # process import tkinter/customtkinter and the whole app module graph, and keyed
+        # off __file__, which lands inside PyInstaller's bundle when frozen. APP_DIR is
+        # the app's own install location (the same value exported to children as the
+        # PROGRAM_DIR env var below), which is where tool_runner.py ships next to the app.
+        new_cmd = [sys.executable, str(APP_DIR / "tool_runner.py"), module_name] + safe_cmd[1:]
 
         script_name = os.path.basename(script_path)
         self.console.put(f"\n[System] Starting {script_name}...\n")
@@ -2149,17 +2155,7 @@ class Antiquarian(ctk.CTk):
 
 
 if __name__ == "__main__":
-    import argparse
-    import runpy
-
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--module", type=str)
-    args, unknown = parser.parse_known_args()
-
-    if args.module:
-        sys.argv = [args.module] + unknown
-        runpy.run_module(args.module, run_name="__main__")
-        sys.exit(0)
-
+    # Subprocess routing moved to the dedicated tool_runner.py shim (BUG-4/ARCH-1);
+    # this entry point now only ever starts the GUI itself.
     app = Antiquarian()
     app.mainloop()

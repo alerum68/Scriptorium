@@ -10,19 +10,26 @@ so gains on an already-tightly-scanned PDF may be modest.
 
 import os
 import shutil
+import sys
 import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
 
 import fitz  # PyMuPDF
-from dotenv import load_dotenv
+
+# Commissioner lives in a sibling tool folder, not an installed package - add the repo
+# root to sys.path so its shared env loader can be imported whether this file was
+# launched standalone or routed through tool_runner.py.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from Commissioner.envkit import load_tool_env  # noqa: E402
 
 # Global settings come from the project root's .env; this tool's own settings come from
-# its own subfolder's .env, so PDFix stays runnable standalone.
-# noinspection DuplicatedCode
-load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
-load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+# its own subfolder's .env, so PDFix stays runnable standalone. Tool .env overrides
+# global .env (root first, tool second, both override=True) - see Commissioner/envkit.py.
+load_tool_env(Path(__file__).resolve().parent)
 
 
 # ==========================================

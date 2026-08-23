@@ -7,18 +7,26 @@ duplicates, and directly creates Task and Folder records in the database.
 
 import os
 import sqlite3
+import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Union
 
 import pandas as pd
-from dotenv import load_dotenv
 from thefuzz import fuzz
 
+# Commissioner lives in a sibling tool folder, not an installed package - add the repo
+# root to sys.path so its shared env loader can be imported whether this file was
+# launched standalone or routed through tool_runner.py.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from Commissioner.envkit import load_tool_env  # noqa: E402
+
 # Global settings come from the project root's .env; this tool's own settings come from
-# its own subfolder's .env, so Registrar stays runnable standalone.
-load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
-load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+# its own subfolder's .env, so Registrar stays runnable standalone. Tool .env overrides
+# global .env (root first, tool second, both override=True) - see Commissioner/envkit.py.
+load_tool_env(Path(__file__).resolve().parent)
 
 # A field in a fuzzy-match record (score/name/birth year/etc.).
 MatchValue = Union[str, int, float, bool, None]

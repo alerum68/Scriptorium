@@ -37,6 +37,10 @@ def build():
         "--noconfirm",
         "--clean",
         "--icon", "Antiquarian.ico",
+        # BUG-4/ARCH-1: tool_runner.py is spawned by path at runtime (_run_subprocess)
+        # and never imported statically, so PyInstaller cannot see it on its own -
+        # force it into the bundle or every frozen subprocess launch fails.
+        "--hidden-import", "tool_runner",
         "--add-data", f"{customtkinter_dir};customtkinter",
         "--add-data", "Commissioner/assets/theme.json;Commissioner/assets",
         "--add-data", "Archivist/settings_schema.yaml;Archivist",
