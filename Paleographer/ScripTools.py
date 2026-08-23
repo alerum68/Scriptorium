@@ -456,7 +456,7 @@ def build_claim_search_queries(record: Dict[str, Any]) -> List[str]:
     if scrip_numbers:
         return [f"Scrip: {n}" for n in scrip_numbers]
 
-    reasons = []
+    reasons = []  # noqa: F841
     file_name = (record.get("document_metadata") or {}).get("file_name", "")
     e_number_match = re.search(r"(e\d{6,})", file_name, re.IGNORECASE)
     if e_number_match:
@@ -474,7 +474,7 @@ def cross_check_claim_record(record: Dict[str, Any], cookies: Dict[str, str], me
                              ) -> Dict[str, Any]:
     """Single-claim cross-check: resolves this Scrip record's own PID, searches for related documents,
     and downloads everything found into record['source_documents']."""
-    reasons = []
+    reasons = []  # noqa: F841
     file_name = (record.get("document_metadata") or {}).get("file_name", "")
     own_pid = resolve_pid_from_filename(file_name)
 

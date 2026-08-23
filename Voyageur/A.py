@@ -5,16 +5,16 @@ import sys
 import urllib.parse
 import uuid
 from pathlib import Path
+import census_schema
 
 # Commissioner lives in a sibling tool folder, not an installed package - add the repo
-# root to sys.path so its shared env loader can be imported whether this sub-script was
-# launched standalone or routed through tool_runner.py.
+# root to sys.path so its shared env loader can be imported when this sub-script is run
+# directly (python Voyageur/A.py); a no-op inside the frozen app bundle.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from Commissioner.envkit import load_tool_env  # noqa: E402
 
-import census_schema
 from _gather_helpers import (
     cleanup_checkpoint_files,
     extract_census_image_routing_fields,

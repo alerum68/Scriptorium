@@ -16,8 +16,8 @@ import pandas as pd
 from thefuzz import fuzz
 
 # Commissioner lives in a sibling tool folder, not an installed package - add the repo
-# root to sys.path so its shared env loader can be imported whether this file was
-# launched standalone or routed through tool_runner.py.
+# root to sys.path so its shared env loader can be imported when this file is run
+# directly (python Registrar/Registrar.py); a no-op inside the frozen app bundle.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))

@@ -786,6 +786,7 @@ GATHER_JSON_TIMEOUT_SECONDS = 30 * 60
 def wait_for_final_json_event_with_timeout(downloads_dir: Path, json_prefix: str, label: str) -> Path:
     result: list = [None]
     error: list = [None]
+
     def _watch():
         try:
             result[0] = wait_for_final_json_event(downloads_dir, json_prefix, label)
@@ -800,6 +801,7 @@ def wait_for_final_json_event_with_timeout(downloads_dir: Path, json_prefix: str
     if error[0] is not None:
         raise error[0]
     return result[0]
+
 
 # ==========================================
 # MAIN EXECUTION

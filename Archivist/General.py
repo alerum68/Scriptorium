@@ -95,10 +95,6 @@ def build_generic_primary_event_lines(rec: dict, part: dict, event_tag: str, wit
                                         Utils.get_proof_status(raw_event_date), target_software))
     return lines
 
-
-
-
-
 class GeneralProfile:
     @staticmethod
     def dynamic_source_id(vol_digits: str, _rec: Optional[dict] = None) -> str:
