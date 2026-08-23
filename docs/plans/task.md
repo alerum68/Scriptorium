@@ -56,7 +56,7 @@ ormalize_sex_code into Commissioner/normalization.py. |
 
 | Task | Status | Description |
 | --- | --- | --- |
-| 1. ARCH-3: Eliminate global mutable state in Archivist pipeline | Pending | `Census.run_census_flavor` mutates ~25 module globals; `General` mutates `GENERAL_CONFIG`/`REPOSITORY`/`_ACTIVE_PROFILE`. Introduce a `RunConfig` dataclass populated once per `run_*_flavor(data, cfg)` entrypoint and threaded explicitly. TEST-1 golden tests (Phase 2, done) are the safety net that makes this provable. Split `build_gedcom_from_census`/`build_individual` into smaller testable functions afterward. |
+| 1. ARCH-3: Eliminate global mutable state in Archivist pipeline | In Progress | `Census.py` done: `run_census_flavor` no longer mutates module globals - a `CensusRunConfig` dataclass is built once per call and threaded explicitly through every builder/citation/household-parsing function; frozen module constants now serve only as its factory defaults. Golden GEDCOM output confirmed byte-identical. Remaining: `General.py` mutates `GENERAL_CONFIG`/`REPOSITORY`/`_ACTIVE_PROFILE`, read directly by `ScripProfile` (Scrip.py) and `HBCAProfile` (HBCA.py) across module boundaries - needs the `Profile` Protocol's method signatures changed to accept a config param, all three implementations updated, and ~5 test files' fixtures rewritten. Split `build_gedcom_from_census`/`build_individual` into smaller testable functions afterward. |
 
 # Ox Alpha Audit: Phase 6 (Performance & Polish)
 
