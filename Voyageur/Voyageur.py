@@ -23,7 +23,7 @@ def main() -> None:
               f"{', '.join(SOURCES)}.")
         sys.exit(1)
     source = sys.argv[1]
-    del sys.argv[1]
+    del sys.argv[1]  # strip the mode token so A/FS/LAC/HBCA's own argv[1:] parsing never sees it
     if source == "A":
         import A
         A.main()

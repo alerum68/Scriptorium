@@ -23,6 +23,8 @@ ENRICHMENT_MODES = ("enrich", "crosscheck", "partition", "resolve-names")
 
 def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] in ENRICHMENT_MODES:
+        # Unlike Voyageur.py's mode token, sys.argv[1] is deliberately left in place here:
+        # ScripTools.main() parses it itself as its own argparse "mode" positional.
         import ScripTools
         ScripTools.main()
     else:
