@@ -49,8 +49,8 @@ ormalize_sex_code into Commissioner/normalization.py. |
 | 2. ARCH-2: Declarative `execute_script` args | Pending | Replace the `if script_key == ... elif mode == ...` CLI-assembly chain with an `ARG_SPECS` table: `(script_key, mode) -> callable(string_vars, debug_file_var) -> list[str]`. |
 | 3. ARCH-4: Curated per-tool env | Pending | `execute_script` dumps every GUI StringVar into every child process env. Derive each script's env from `ENV_TARGETS` schema ownership instead. |
 | 4. ARCH-5: Complete FactTypes migration | Pending | Make `Commissioner/models.py::FACT_DEFINITIONS` the sole source of truth; `Utils.FACT_TYPES` and `load_event_types` (currently duplicated in `engine.py`/`FS.py`) derive from it. Keep `FactTypes.json` only as a generated export if needed. |
-| 5. ARCH-6: `record_registry` frozen-build path resolution | Pending | `PMT_DIR` is hardcoded via `__file__`; frozen, prompts land somewhere `build.py` never copies them to. Give `record_registry` the same tiered search `engine._prompt_search_dirs` already implements. |
-| 6. ARCH-7: Lazy `Commissioner` registry build | Pending | Importing `Commissioner` eagerly parses every `.pmt` file at import time, so one bad file crashes unrelated tools. Make the registry build lazy via a `functools.lru_cache`d getter. |
+| 5. ARCH-6: `record_registry` frozen-build path resolution | Done | Added `_pmt_files_by_priority()`, merging `.pmt` files across the tiered search dirs `prompt_search_dirs()` already defines; wired `_build_registry()` and `get_field_remap()` through it instead of the hardcoded, source-tree-relative `PMT_DIR`. |
+| 6. ARCH-7: Lazy `Commissioner` registry build | Done | Replaced eager module-level `_REGISTRY = _build_registry()` with an `lru_cache`d `_get_registry()` getter; builds on first access, not at import time. |
 
 # Ox Alpha Audit: Phase 5 (De-globalization)
 
