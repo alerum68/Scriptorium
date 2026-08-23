@@ -152,6 +152,18 @@ def resolve_prompt_path(
     )
 
 
+def _pmt_files_by_priority(search_dirs: Optional[List[Path]] = None) -> Dict[str, Path]:
+    """Merges .pmt files across the tiered search dirs, highest priority winning, keyed
+    by lowercase filename - same tiering/merge convention as resolve_prompt_path."""
+    dirs = search_dirs if search_dirs is not None else prompt_search_dirs()
+    available: Dict[str, Path] = {}
+    for p_dir in reversed(dirs):
+        if p_dir.is_dir():
+            for p in sorted(p_dir.glob("*.pmt")):
+                available[p.name.lower()] = p
+    return available
+
+
 def _field_type_for(document_type: str, field: dict) -> Any:
     type_name = field["type"]
     if type_name == "enum":
@@ -175,9 +187,17 @@ def _build_extra_model(model_name: str, document_type: str, fields: List[dict]) 
     return create_model(model_name, __config__=ConfigDict(extra="forbid"), **field_definitions)
 
 
-def _build_registry(pmt_dir: Path = PMT_DIR) -> Dict[str, _DocumentTypeSchema]:
+def _build_registry(pmt_dir: Optional[Path] = None) -> Dict[str, _DocumentTypeSchema]:
+    """Builds the document-type registry from pmt_dir if given (tests pin a single
+    fixture dir this way), otherwise from the tiered search dirs (GENEALOGY_DIR/Prompts
+    -> PROGRAM_DIR/Prompts -> dev-checkout) so a frozen build finds the .pmt files
+    build.py actually bundles, not just the source-tree path PMT_DIR points at."""
     registry: Dict[str, _DocumentTypeSchema] = {}
-    for pmt_path in sorted(pmt_dir.glob("*.pmt")):
+    pmt_paths = (
+        sorted(pmt_dir.glob("*.pmt")) if pmt_dir is not None
+        else sorted(_pmt_files_by_priority().values(), key=lambda p: p.stem)
+    )
+    for pmt_path in pmt_paths:
         document_type = pmt_path.stem
         front_matter = _load_pmt_front_matter(pmt_path)
 
@@ -308,7 +328,8 @@ def build_empty_sheet(file_name: str, file_type: str, page_id: Optional[str] = N
 def get_field_remap(document_type: str) -> Dict[str, str]:
     """Returns document_type's own .pmt front matter field_remap table."""
     _get_schema(document_type)  # raises UnknownDocumentTypeError early if unrecognized
-    front_matter = _load_pmt_front_matter(PMT_DIR / f"{document_type}.pmt")
+    pmt_path = _pmt_files_by_priority().get(f"{document_type}.pmt".lower())
+    front_matter = _load_pmt_front_matter(pmt_path) if pmt_path else {}
     return front_matter.get("field_remap") or {}
 
 
