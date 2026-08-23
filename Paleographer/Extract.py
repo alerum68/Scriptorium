@@ -241,7 +241,7 @@ MEDIA_DIR: Path = GENEALOGY_DIR / (os.getenv("MEDIA_DIR") or "Media")
 SOURCE_DIR: str = str(MEDIA_DIR / TYPE_CFG.name)
 
 MODEL_ID: str = os.getenv("MODEL_NAME") or ""
-if not MODEL_ID:
+if EXTRACTION_ENGINE == "api" and not MODEL_ID:
     raise RuntimeError("MODEL_NAME is not set. Check your .env configuration.")
 DEBUG_FILE: Union[str, None] = sys.argv[1] if (
     len(sys.argv) > 1
@@ -345,8 +345,10 @@ def save_master_db(master_data: Dict[str, Any]) -> None:
         print(f"[WARN] Commissioner validation failed for {COLLECTION_TITLE!r}: {e}")
 
     os.makedirs(os.path.dirname(MASTER_DB), exist_ok=True)
-    with open(MASTER_DB, "w", encoding="utf-8") as f:
+    master_db_tmp = MASTER_DB + ".tmp"
+    with open(master_db_tmp, "w", encoding="utf-8") as f:
         json.dump(master_data, f, indent=2, ensure_ascii=False)
+    os.replace(master_db_tmp, MASTER_DB)
 
 
 def _sheet_is_placeholder(sheet: Dict[str, Any]) -> bool:

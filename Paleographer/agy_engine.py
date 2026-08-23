@@ -321,7 +321,9 @@ def run_with_agy_retries(call_fn: Callable[[], Any], max_retries: int = DEFAULT_
     execution when quota or rate limit reset times are encountered, restarting gracefully
     at the exact same spot once the reset time arrives. Fails fast on AgyBinaryNotFoundError."""
     last_error: Optional[Exception] = None
-    for attempt in range(1, max_retries + 1):
+    failure_count = 0
+    quota_pause_count = 0
+    while failure_count < max_retries:
         try:
             return call_fn()
         except agy_client.AgyBinaryNotFoundError as e:
@@ -330,18 +332,20 @@ def run_with_agy_retries(call_fn: Callable[[], Any], max_retries: int = DEFAULT_
             last_error = e
             err_msg = str(e)
             if agy_client.is_quota_or_rate_limit(err_msg):
+                quota_pause_count += 1
                 wait_time = agy_client.parse_quota_reset_wait_seconds(err_msg)
                 if wait_time is not None and wait_time > 0:
                     agy_client.pause_for_quota_reset(wait_time, reason=f"agy quota limit hit: {err_msg[:80]}")
                     continue
                 else:
-                    pause_wait = 30.0 * float(2 ** (attempt - 1))
+                    pause_wait = 30.0 * float(2 ** (quota_pause_count - 1))
                     agy_client.pause_for_quota_reset(pause_wait, reason=f"agy rate limit hit: {err_msg[:80]}")
                     continue
 
-            if attempt < max_retries:
-                wait = backoff_seconds * attempt
-                print(f"   [!] agy call failed (attempt {attempt}/{max_retries}): {e} "
+            failure_count += 1
+            if failure_count < max_retries:
+                wait = backoff_seconds * failure_count
+                print(f"   [!] agy call failed (attempt {failure_count}/{max_retries}): {e} "
                       f"Retrying in {wait:.0f}s...", flush=True)
                 time.sleep(wait)
     err_str = str(last_error) if last_error is not None else "unknown error"

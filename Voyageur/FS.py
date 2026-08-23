@@ -26,6 +26,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -778,6 +779,29 @@ def normalize_familysearch_census_gather(raw_census: dict, collection_title: str
 
 
 # ==========================================
+# WATCHDOG TIMEOUT
+# ==========================================
+GATHER_JSON_TIMEOUT_SECONDS = 30 * 60
+
+def wait_for_final_json_event_with_timeout(downloads_dir: Path, json_prefix: str, label: str) -> Path:
+    result: list = [None]
+    error: list = [None]
+    def _watch():
+        try:
+            result[0] = wait_for_final_json_event(downloads_dir, json_prefix, label)
+        except BaseException as exc:
+            error[0] = exc
+    watcher = threading.Thread(target=_watch, daemon=True)
+    watcher.start()
+    watcher.join(GATHER_JSON_TIMEOUT_SECONDS)
+    if watcher.is_alive():
+        print(f"[ERROR] Timed out after {GATHER_JSON_TIMEOUT_SECONDS // 60} minutes waiting for {label}.", flush=True)
+        sys.exit(1)
+    if error[0] is not None:
+        raise error[0]
+    return result[0]
+
+# ==========================================
 # MAIN EXECUTION
 # ==========================================
 def convert_raw_gather_to_final(raw_data: dict) -> Tuple[dict, Optional[str]]:
@@ -929,7 +953,7 @@ def main() -> None:
 
     start_time = launch_gather_browser(url, run_id)
 
-    raw_json_file = wait_for_final_json_event(downloads_dir, json_prefix, "raw gather JSON")
+    raw_json_file = wait_for_final_json_event_with_timeout(downloads_dir, json_prefix, "raw gather JSON")
 
     raw_data = json.loads(_read_text_with_retry(raw_json_file))
     print_incomplete_pages_warning(raw_data.get("incomplete_pages", []), "item(s)")

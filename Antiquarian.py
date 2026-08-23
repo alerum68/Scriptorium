@@ -101,9 +101,11 @@ def batch_set_env(env_path: Path, updates: Dict[str, str]) -> None:
             new_lines.append(f"{key}='{val}'")
 
     content = "\n".join(new_lines) + "\n"
+    tmp_path = env_path.with_suffix(".tmp")
     for attempt in range(5):
         try:
-            env_path.write_text(content, encoding="utf-8")
+            tmp_path.write_text(content, encoding="utf-8")
+            os.replace(tmp_path, env_path)
             break
         except PermissionError:
             if attempt == 4:
