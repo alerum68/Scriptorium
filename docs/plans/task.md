@@ -4,7 +4,7 @@
 | --- | --- | --- |
 | 1. BUG-1: `ScripTools` review_reason | Done | Fix `record.setdefault("review_reason", []).append(...)` to be a string, matching the schema. |
 | 2. BUG-2: `PDFix` temp-file regex | Done | Fix `.temp_optimized.pdf` guard to match the actual `.temp_opt_` prefix. |
-| 3. BUG-4 & ARCH-1: PyInstaller Runner Shim | Done | Implement `tool_runner.py` shim and add `hiddenimports` in `build.py` to fix frozen `.exe` tool launches. |
+| 3. BUG-4 & ARCH-1: PyInstaller Runner Shim | Done | Self-relaunch via `sys.executable`/`--module`/`runpy.run_module` (frozen exe can't run an arbitrary script path); declare all `runpy`-only entry-point modules as `hiddenimports` in `build.py`. |
 | 4. BUG-5: `Extract.py` MODEL_NAME | Done | Gate `MODEL_ID` requirement on `EXTRACTION_ENGINE == "api"`. |
 | 5. BUG-6: `census_schema` review message | Done | Reword stale review reason for unmapped columns. |
 | 6. BUG-7: Master DB Atomic Writes | Done | Route `Extract.save_master_db` to use a `.tmp` file and atomic replace to prevent corruption. |
