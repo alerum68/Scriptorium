@@ -12,10 +12,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-def load_tool_env(tool_dir) -> None:
-    """Loads <repo root>/.env then <tool_dir>/.env, both override=True, so a tool's own
-    .env always beats the same key in the global one, and either beats anything the
-    parent process already put in the environment."""
+def load_tool_env(tool_dir, override: bool = False) -> None:
+    """Loads <tool_dir>/.env then <repo root>/.env, so a tool's own .env always takes
+    precedence over the global one, while allowing explicit environment variables (e.g. from
+    test runners) to remain authoritative when override=False."""
     tool_dir = Path(tool_dir).resolve()
-    load_dotenv(tool_dir.parent / ".env", override=True)
-    load_dotenv(tool_dir / ".env", override=True)
+    load_dotenv(tool_dir / ".env", override=override)
+    load_dotenv(tool_dir.parent / ".env", override=override)

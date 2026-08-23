@@ -9,19 +9,21 @@ Environment variables:
 """
 
 import os
+import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from Commissioner.envkit import load_tool_env  # noqa: E402
 # noinspection PyUnresolvedReferences
-from google import genai
+from google import genai  # noqa: E402
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
-# Global settings come from the project root's .env; this tool's own settings come from
-# its own subfolder's .env, so Paleographer stays runnable standalone.
-load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
-load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+load_tool_env(Path(__file__).resolve().parent)
 client = genai.Client(api_key=os.getenv("AI_API_KEY"))
 
 

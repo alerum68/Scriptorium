@@ -53,7 +53,9 @@ def test_parse_type_config_reads_front_matter_and_substitutes_env(tmp_path, monk
     cfg = engine.parse_type_config(pmt_path)
 
     assert cfg.name == "TestType"
-    assert cfg.event_types == {"Baptism": {"id_prefix": "BAPM-"}, "Marriage": {"id_prefix": "MARR-"}}
+    assert cfg.event_types["Baptism"] == {"id_prefix": "BAPM-"}
+    assert cfg.event_types["Marriage"] == {"id_prefix": "MARR-"}
+    assert len(cfg.event_types) == len(engine.FACT_DEFINITIONS)
     assert cfg.roles == {"1": {"name": "Primary", "semantic": "primary"}}
     assert cfg.defaults == {"record": {"event_place": "Testville"}}
     assert cfg.metadata_fields == {"Church": "St. Test Parish"}
@@ -100,9 +102,11 @@ def test_parse_type_config_handles_no_front_matter(tmp_path, monkeypatch):
 
     cfg = engine.parse_type_config(pmt_path)
 
-    # event_types is sourced from the shared FactTypes.json regardless of front matter,
+    # event_types is sourced from FACT_DEFINITIONS regardless of front matter,
     # so it's populated here even though this .pmt has no front matter of its own.
-    assert cfg.event_types == {"Baptism": {"id_prefix": "BAPM-"}, "Marriage": {"id_prefix": "MARR-"}}
+    assert cfg.event_types["Baptism"] == {"id_prefix": "BAPM-"}
+    assert cfg.event_types["Marriage"] == {"id_prefix": "MARR-"}
+    assert len(cfg.event_types) == len(engine.FACT_DEFINITIONS)
     assert cfg.prose == "Just prose, no front matter at all."
 
 
@@ -119,7 +123,7 @@ def test_build_vocabulary_summary_lists_sorted_values(tmp_path, monkeypatch):
 
     summary = engine.build_vocabulary_summary(cfg)
 
-    assert "Baptism, Marriage" in summary
+    assert "Baptism" in summary and "Marriage" in summary
     assert "Father, Primary" in summary
 
 
@@ -188,12 +192,12 @@ def test_build_vocabulary_summary_open_mode_uses_escape_hatch_phrasing(tmp_path,
     assert "choose exactly one per participant" not in summary
 
 
-def test_load_event_types_flattens_person_and_family_buckets(tmp_path, monkeypatch):
-    _write_fact_types_fixture(tmp_path, monkeypatch)
-
+def test_load_event_types_flattens_person_and_family_buckets():
     result = engine.load_event_types()
 
-    assert result == {"Baptism": {"id_prefix": "BAPM-"}, "Marriage": {"id_prefix": "MARR-"}}
+    assert result["Baptism"] == {"id_prefix": "BAPM-"}
+    assert result["Marriage"] == {"id_prefix": "MARR-"}
+    assert len(result) == len(engine.FACT_DEFINITIONS)
 
 
 # ==========================================

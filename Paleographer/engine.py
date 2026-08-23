@@ -24,7 +24,6 @@ from textwrap import dedent
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import pdfplumber
-import yaml
 from PIL import Image
 # noinspection PyUnresolvedReferences
 from google import genai
@@ -37,8 +36,15 @@ from google.genai import types
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
 from PDFix.PDFix import optimize_pdf, COMPRESSION_PARAMS  # noqa: E402
 from AntiquarianMCP import agy_client  # noqa: E402
+from Commissioner.models import FACT_DEFINITIONS  # noqa: E402
+from Commissioner.record_registry import (  # noqa: E402
+    load_pmt_parts,
+    prompt_search_dirs,
+    resolve_prompt_path as comm_resolve_prompt_path,
+)
 
 DEFAULT_TYPE = "Parish.pmt"
 FACT_TYPES_PATH = Path(__file__).resolve().parent.parent / "Commissioner" / "FactTypes.json"
@@ -126,79 +132,23 @@ def _substitute_env(value: Any) -> Any:
     return value
 
 
-def _prompt_search_dirs() -> List[Path]:
-    """.pmt search path, highest priority first:
-    1. GENEALOGY_DIR/Prompts - a user's own per-installation overrides. For a portable
-       install GENEALOGY_DIR defaults to the portable folder itself (see Antiquarian.py's
-       _DEFAULT_GENEALOGY_DIR), so this naturally lands on the very "Prompts" folder
-       build.py already ships there - no hardcoded app/folder name involved either way.
-    2. PROGRAM_DIR/Prompts - the app's own bundled defaults (what build.py copies into
-       dist/Antiquarian/Prompts). PROGRAM_DIR-relative rather than __file__-relative so
-       this resolves correctly in a frozen build too - see Gazetteer.py's SHAPEFILE_PATH
-       for the same reasoning (.pmt files aren't part of PyInstaller's own --add-data
-       bundling, only this copied folder has them once frozen).
-    3. This source file's own sibling "prompts" folder - dev-mode fallback for running
-       straight from a checkout with no env vars set at all.
-    A record type found in an earlier tier shadows the same filename in a later one, so
-    overriding a single .pmt doesn't require copying the rest alongside it."""
-    dirs = []
-    genealogy_dir = os.getenv("GENEALOGY_DIR", "").strip()
-    if genealogy_dir:
-        dirs.append(Path(genealogy_dir) / (os.getenv("PROMPTS_DIR") or "Prompts"))
-    program_dir = os.getenv("PROGRAM_DIR", "").strip()
-    if program_dir:
-        dirs.append(Path(program_dir) / "Prompts")
-    dirs.append(Path(__file__).resolve().parent / "prompts")
-    return dirs
+_prompt_search_dirs = prompt_search_dirs
 
 
 def resolve_prompt_path(requested_name: str) -> Path:
     """Finds the .pmt file for the requested record type (case-insensitive, extension
     optional), falling back to DEFAULT_TYPE if not found."""
-    requested = (requested_name or "").strip() or DEFAULT_TYPE
-    if not requested.lower().endswith(".pmt"):
-        requested += ".pmt"
-
-    search_dirs = _prompt_search_dirs()
-    available: Dict[str, Path] = {}
-    for prompts_dir in reversed(search_dirs):
-        if prompts_dir.is_dir():
-            for p in prompts_dir.glob("*.pmt"):
-                available[p.name.lower()] = p
-
-    match = available.get(requested.lower())
-    if match:
-        return match
-
-    fallback = available.get(DEFAULT_TYPE.lower())
-    if fallback:
-        return fallback
-
-    searched = ", ".join(str(d) for d in search_dirs)
-    raise FileNotFoundError(
-        f"Could not find record type '{requested}' or fallback '{DEFAULT_TYPE}' in any of: {searched}"
-    )
+    return comm_resolve_prompt_path(requested_name, default_type=DEFAULT_TYPE)
 
 
 def load_event_types() -> Dict[str, Dict[str, str]]:
-    """Loads the toolbox-wide fact/event vocabulary from FactTypes.json (mirrors the
-    RootsMagic FactTypeTable this project's .rmtree databases actually use - every
-    built-in fact type plus this project's own customs, e.g. "dit Name"). This is
-    shared across every record type rather than declared per-.pmt, since it's
-    RootsMagic's own vocabulary, not something that varies by document type. Person and
-    family fact buckets are flattened into one lookup keyed by name - RootsMagic itself
-    never reuses a name across the two (e.g. "Residence" vs "Residence (family)"), so a
-    flat merge can't collide. id_prefix is derived from each fact's gedcom_tag for
-    record_id construction (e.g. "BAPM-14") - the only thing this table is used for;
-    Archivist derives its own GEDCOM-tag/family-bucket handling directly from event_type
-    via the same FactTypes.json (get_event_gedcom_tag/is_family_event), not from anything
-    here."""
-    data = json.loads(FACT_TYPES_PATH.read_text(encoding="utf-8"))
-    merged: Dict[str, Dict[str, str]] = {}
-    for bucket in ("person", "family"):
-        for name, entry in data.get(bucket, {}).items():
-            merged[name] = {"id_prefix": f"{entry['gedcom_tag']}-"}
-    return merged
+    """Loads the toolbox-wide fact/event vocabulary from Commissioner.models.FACT_DEFINITIONS.
+    Person and family fact buckets are flattened into one lookup keyed by name.
+    id_prefix is derived from each fact's gedcom_tag for record_id construction (e.g. "BAPM-14")."""
+    return {
+        fd.name: {"id_prefix": f"{fd.gedcom_tag}-"}
+        for fd in FACT_DEFINITIONS
+    }
 
 
 def parse_type_config(pmt_path: Path) -> TypeConfig:
@@ -218,18 +168,7 @@ def parse_type_config(pmt_path: Path) -> TypeConfig:
     whichever of this record type's own prefixed .env keys is actually set, without
     Antiquarian.py's GUI layer needing to know what a record type even is - each script
     reads this table itself, from its own .env, and stays runnable standalone."""
-    raw = pmt_path.read_text(encoding="utf-8")
-    stripped = raw.lstrip()
-
-    front_matter: Dict[str, Any] = {}
-    prose = raw
-
-    if stripped.startswith(FRONT_MATTER_DELIM):
-        parts = stripped.split(FRONT_MATTER_DELIM, 2)
-        if len(parts) >= 3:
-            front_matter = yaml.safe_load(parts[1]) or {}
-            prose = parts[2]
-
+    front_matter, prose = load_pmt_parts(pmt_path)
     front_matter = _substitute_env(front_matter)
 
     return TypeConfig(

@@ -12,12 +12,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import pandas as pd
-from dotenv import load_dotenv
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from Commissioner.envkit import load_tool_env  # noqa: E402
 from Commissioner.textutils import clean_text  # noqa: E402
 from Commissioner.normalization import (  # noqa: E402
     capitalize_text_string as _norm_capitalize_text_string,
@@ -29,9 +29,7 @@ CellValue = Union[str, int, float, bool, None]
 # ==========================================
 # CONFIGURATION & CONSTANTS
 # ==========================================
-load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
-load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
-load_dotenv(Path(__file__).resolve().parent.parent / "Paleographer" / ".env", override=False)
+load_tool_env(Path(__file__).resolve().parent)
 
 
 def get_env_int(key: str, default: int) -> int:

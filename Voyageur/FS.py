@@ -34,7 +34,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, urlencode, urlunparse
 
 import pandas as pd
-import yaml
 from thefuzz import fuzz
 
 import census_schema
@@ -58,6 +57,8 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from Commissioner import normalization  # noqa: E402
 from Commissioner.envkit import load_tool_env  # noqa: E402
+from Commissioner.models import FACT_DEFINITIONS  # noqa: E402
+from Commissioner.record_registry import load_pmt_front_matter  # noqa: E402
 
 ANTIQUARIAN_DIR = Path(__file__).resolve().parent.parent
 FACT_TYPES_PATH = ANTIQUARIAN_DIR / "Commissioner" / "FactTypes.json"
@@ -69,30 +70,18 @@ PARISH_PMT_PATH = ANTIQUARIAN_DIR / "Paleographer" / "prompts" / "Parish.pmt"
 
 
 def load_event_types() -> Dict[str, Dict[str, str]]:
-    """Loads the toolbox-wide fact/event vocabulary from FactTypes.json (RootsMagic's own
-    FactTypeTable, defaults plus this project's customs). Person and family buckets are
-    flattened into one lookup keyed by name - RootsMagic itself never reuses a name across
-    the two (e.g. "Residence" vs "Residence (family)"), so a flat merge can't collide."""
-    data = json.loads(FACT_TYPES_PATH.read_text(encoding="utf-8"))
-    merged: Dict[str, Dict[str, str]] = {}
-    for bucket in ("person", "family"):
-        for name, entry in data.get(bucket, {}).items():
-            merged[name] = {"code": entry["code"], "id_prefix": f"{entry['gedcom_tag']}-"}
-    return merged
+    """Loads the toolbox-wide fact/event vocabulary from Commissioner.models.FACT_DEFINITIONS."""
+    return {
+        fd.name: {"code": fd.code, "id_prefix": f"{fd.gedcom_tag}-"}
+        for fd in FACT_DEFINITIONS
+    }
 
 
 def load_roles() -> Dict[str, Dict[str, Optional[str]]]:
     """Loads Parish.pmt's participant role vocabulary (Primary/Father/Mother/Spouse/Father of
     Spouse/Mother of Spouse/godparents) - every FS gather so far is a parish register, so
     this is the right vocabulary source, same as Paleographer's own AI transcription uses."""
-    raw = PARISH_PMT_PATH.read_text(encoding="utf-8")
-    stripped = raw.lstrip()
-    if not stripped.startswith("---"):
-        return {}
-    parts = stripped.split("---", 2)
-    if len(parts) < 3:
-        return {}
-    front_matter = yaml.safe_load(parts[1]) or {}
+    front_matter = load_pmt_front_matter(PARISH_PMT_PATH)
     return front_matter.get("roles", {})
 
 

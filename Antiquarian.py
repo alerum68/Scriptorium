@@ -18,6 +18,7 @@ from typing import Union, Dict, Callable, List, Optional
 import customtkinter as ctk
 import yaml
 from dotenv import dotenv_values
+from Commissioner.record_registry import load_pmt_front_matter, prompt_search_dirs
 
 BASE_DIR = Path(__file__).resolve().parent
 APP_VERSION = "0.07.00"
@@ -1558,18 +1559,11 @@ class Antiquarian(ctk.CTk):
         PROGRAM_DIR itself is never a GUI field (see _run_subprocess) - it's always
         APP_DIR, the app's actual install location, so this reads that directly rather
         than a nonexistent string_vars entry."""
-        dirs = []
-
         gen_var = self.string_vars.get("GENEALOGY_DIR")
         gen_dir = gen_var.get().strip() if gen_var else ""
         prompts_var = self.string_vars.get("PROMPTS_DIR")
         prompts_subdir = (prompts_var.get().strip() if prompts_var else "") or "Prompts"
-
-        if gen_dir:
-            dirs.append(Path(gen_dir) / prompts_subdir)
-        dirs.append(APP_DIR / "Prompts")
-        dirs.append(Path(__file__).resolve().parent / "Paleographer" / "prompts")
-        return dirs
+        return prompt_search_dirs(genealogy_dir=gen_dir, prompts_dir=prompts_subdir, program_dir=str(APP_DIR))
 
     def _list_record_types(self) -> List[str]:
         """Lists every .pmt file found in the multi-tier prompt search path."""
@@ -1593,30 +1587,11 @@ class Antiquarian(ctk.CTk):
         if not name.endswith(".pmt"):
             name += ".pmt"
 
-        pmt_path = None
         for d in self._prompt_search_dirs():
             candidate = d / name
             if candidate.is_file():
-                pmt_path = candidate
-                break
-
-        if not pmt_path:
-            return {}
-        try:
-            raw = pmt_path.read_text(encoding="utf-8")
-        except OSError:
-            return {}
-
-        stripped = raw.lstrip()
-        if not stripped.startswith("---"):
-            return {}
-        parts = stripped.split("---", 2)
-        if len(parts) < 3:
-            return {}
-        try:
-            return yaml.safe_load(parts[1]) or {}
-        except yaml.YAMLError:
-            return {}
+                return load_pmt_front_matter(candidate)
+        return {}
 
     def _get_pmt_settings_sections(self, record_type_value: str) -> List[str]:
         """Reads the settings_sections a .pmt's own front matter declares (if any), telling

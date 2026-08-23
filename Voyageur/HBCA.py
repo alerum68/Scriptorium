@@ -15,7 +15,6 @@ from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
 
 # pypdf logs "incorrect startxref pointer" / "parsing for Object Streams" as
 # non-fatal recovery warnings for malformed archival PDFs; it still parses
@@ -32,8 +31,9 @@ try:
 except ImportError:
     from Voyageur._gather_helpers import atomic_write_bytes
 
-load_dotenv(_REPO_ROOT / ".env", override=False)
-load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
+from Commissioner.envkit import load_tool_env  # noqa: E402
+
+load_tool_env(Path(__file__).resolve().parent)
 
 
 # ==========================================
@@ -47,17 +47,24 @@ class BioSheetEntry:
     pdf_url: str
 
 
+try:
+    from Archivist.Utils import safe_path  # noqa: E402
+except (ImportError, AttributeError):
+    import importlib.util
+    _u_spec = importlib.util.spec_from_file_location("Archivist_Utils", _REPO_ROOT / "Archivist" / "Utils.py")
+    _u_mod = importlib.util.module_from_spec(_u_spec)
+    _u_spec.loader.exec_module(_u_mod)
+    safe_path = _u_mod.safe_path
+from Commissioner.jsonio import (  # noqa: E402
+    atomic_write_json,
+    load_checkpoint as jsonio_load_checkpoint,
+    save_checkpoint as jsonio_save_checkpoint,
+)
+
 # ==========================================
 # PATH & CONFIG RESOLUTION
 # ==========================================
-def _safe_path(base: str, *parts: str) -> str:
-    non_blank = [p for p in parts if p]
-    if not non_blank:
-        return ""
-    res = base
-    for p in non_blank:
-        res = p if os.path.isabs(p) else os.path.join(res, p)
-    return res
+_safe_path = safe_path
 
 
 def resolve_generic_setting(document_type: str, generic_key: str, default: str = "") -> str:
@@ -667,31 +674,20 @@ def build_hbca_scaffold_sheet(
 
 def load_checkpoint(checkpoint_file: Path) -> Set[str]:
     """Loads set of completed file names from checkpoint file."""
-    if not checkpoint_file.exists():
+    data = jsonio_load_checkpoint(checkpoint_file, default=None)
+    if not data:
         return set()
-    try:
-        with open(checkpoint_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return set(data.get("downloaded_files", []))
-    except Exception as e:
-        print(f"[WARN] Failed to read checkpoint {checkpoint_file}: {e}")
-        return set()
+    return set(data.get("downloaded_files", []))
 
 
 def save_checkpoint(checkpoint_file: Path, downloaded_files: Set[str]) -> None:
     """Saves completed file names to checkpoint file."""
-    checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
-    temp_file = checkpoint_file.with_suffix(".tmp")
-    with open(temp_file, "w", encoding="utf-8") as f:
-        json.dump({"downloaded_files": sorted(downloaded_files)}, f, indent=2)
-    temp_file.replace(checkpoint_file)
+    jsonio_save_checkpoint(checkpoint_file, {"downloaded_files": sorted(downloaded_files)})
 
 
 def append_scaffold_sheet(master_db_path: Path, sheet: dict) -> None:
     """Loads or creates MasterDB_HBCA.json and appends a scaffold sheet if not present."""
     from Commissioner.record_registry import validate_collection_softly
-
-    master_db_path.parent.mkdir(parents=True, exist_ok=True)
 
     data: Dict[str, Any] = {
         "collection_title": "Hudson's Bay Company Archives: Biographical Sheets",
@@ -710,11 +706,7 @@ def append_scaffold_sheet(master_db_path: Path, sheet: dict) -> None:
         data.setdefault("sheets", []).append(sheet)
 
     validate_collection_softly(data, "HBCA", str(master_db_path))
-
-    temp_path = master_db_path.with_suffix(".tmp")
-    with open(temp_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    temp_path.replace(master_db_path)
+    atomic_write_json(master_db_path, data, indent=2, ensure_ascii=False)
 
 
 # ==========================================

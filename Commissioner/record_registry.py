@@ -1,6 +1,7 @@
+import os
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, List, Optional, Type
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple, Type, Union
 
 import yaml
 from pydantic import BaseModel, ConfigDict, create_model
@@ -46,10 +47,108 @@ class _DocumentTypeSchema:
         self.role_validation_mode = role_validation_mode
 
 
-def _load_pmt_front_matter(path: Path) -> dict:
-    text = path.read_text(encoding="utf-8")
-    _, front_matter, _ = text.split("---", 2)
-    return yaml.safe_load(front_matter) or {}
+def load_pmt_front_matter(path: Union[str, Path]) -> dict:
+    """Reads a .pmt file's YAML front matter. Returns {} if missing, unparseable, or no front matter."""
+    p = Path(path)
+    if not p.is_file():
+        return {}
+    try:
+        raw = p.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    stripped = raw.lstrip()
+    if not stripped.startswith("---"):
+        return {}
+    parts = stripped.split("---", 2)
+    if len(parts) < 3:
+        return {}
+    try:
+        return yaml.safe_load(parts[1]) or {}
+    except yaml.YAMLError:
+        return {}
+
+
+_load_pmt_front_matter = load_pmt_front_matter
+
+
+def load_pmt_parts(path: Union[str, Path]) -> Tuple[dict, str]:
+    """Splits a .pmt file into its YAML front-matter dict and prose body."""
+    p = Path(path)
+    if not p.is_file():
+        return {}, ""
+    try:
+        raw = p.read_text(encoding="utf-8")
+    except OSError:
+        return {}, ""
+    stripped = raw.lstrip()
+    if stripped.startswith("---"):
+        parts = stripped.split("---", 2)
+        if len(parts) >= 3:
+            try:
+                fm = yaml.safe_load(parts[1]) or {}
+            except yaml.YAMLError:
+                fm = {}
+            return fm, parts[2]
+    return {}, raw
+
+
+def prompt_search_dirs(
+    genealogy_dir: Optional[str] = None,
+    prompts_dir: Optional[str] = None,
+    program_dir: Optional[str] = None,
+) -> List[Path]:
+    """.pmt search path, highest priority first:
+    1. GENEALOGY_DIR / PROMPTS_DIR (user overrides)
+    2. PROGRAM_DIR / Prompts (bundled defaults)
+    3. Paleographer/prompts (dev-mode checkout fallback)
+    """
+    dirs = []
+    g_dir = os.getenv("GENEALOGY_DIR", "").strip() if genealogy_dir is None else str(genealogy_dir).strip()
+    p_subdir = (os.getenv("PROMPTS_DIR") or "Prompts").strip() if prompts_dir is None else str(prompts_dir).strip()
+    if not p_subdir:
+        p_subdir = "Prompts"
+    if g_dir:
+        dirs.append(Path(g_dir) / p_subdir)
+
+    pr_dir = os.getenv("PROGRAM_DIR", "").strip() if program_dir is None else str(program_dir).strip()
+    if pr_dir:
+        dirs.append(Path(pr_dir) / "Prompts")
+
+    dev_prompts = Path(__file__).resolve().parent.parent / "Paleographer" / "prompts"
+    dirs.append(dev_prompts)
+    return dirs
+
+
+def resolve_prompt_path(
+    requested_name: str,
+    search_dirs: Optional[List[Path]] = None,
+    default_type: str = "Parish.pmt",
+) -> Path:
+    """Finds the .pmt file for the requested record type (case-insensitive, extension
+    optional), falling back to default_type if not found."""
+    requested = (requested_name or "").strip() or default_type
+    if not requested.lower().endswith(".pmt"):
+        requested += ".pmt"
+
+    dirs = search_dirs if search_dirs is not None else prompt_search_dirs()
+    available: Dict[str, Path] = {}
+    for p_dir in reversed(dirs):
+        if p_dir.is_dir():
+            for p in p_dir.glob("*.pmt"):
+                available[p.name.lower()] = p
+
+    match = available.get(requested.lower())
+    if match:
+        return match
+
+    fallback = available.get(default_type.lower())
+    if fallback:
+        return fallback
+
+    searched = ", ".join(str(d) for d in dirs)
+    raise FileNotFoundError(
+        f"Could not find record type '{requested}' or fallback '{default_type}' in any of: {searched}"
+    )
 
 
 def _field_type_for(document_type: str, field: dict) -> Any:

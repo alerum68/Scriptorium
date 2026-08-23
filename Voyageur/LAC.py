@@ -10,12 +10,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
-from dotenv import load_dotenv
-
-# Global settings come from the project root's .env; this tool's own settings come from
-# its own subfolder's .env, so Voyageur stays runnable standalone.
-load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
-load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 # Commissioner lives in a sibling tool folder, not an installed package - add the repo root
 # to sys.path so it can be imported by absolute path, matching census_schema.py's own
@@ -23,6 +17,10 @@ load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+from Commissioner.envkit import load_tool_env  # noqa: E402
+
+load_tool_env(Path(__file__).resolve().parent)
 
 try:
     import lac_client
@@ -35,17 +33,24 @@ except ImportError:
     from Voyageur._gather_helpers import atomic_write_bytes
 
 
+try:
+    from Archivist.Utils import safe_path  # noqa: E402
+except (ImportError, AttributeError):
+    import importlib.util
+    _u_spec = importlib.util.spec_from_file_location("Archivist_Utils", _REPO_ROOT / "Archivist" / "Utils.py")
+    _u_mod = importlib.util.module_from_spec(_u_spec)
+    _u_spec.loader.exec_module(_u_mod)
+    safe_path = _u_mod.safe_path
+from Commissioner.jsonio import (  # noqa: E402
+    atomic_write_json,
+    load_checkpoint as jsonio_load_checkpoint,
+    save_checkpoint as jsonio_save_checkpoint,
+)
+
 # ==========================================
 # PATH & CONFIG SETUP
 # ==========================================
-def _safe_path(base: str, *parts: str) -> str:
-    non_blank = [p for p in parts if p]
-    if not non_blank:
-        return ""
-    res = base
-    for p in non_blank:
-        res = p if os.path.isabs(p) else os.path.join(res, p)
-    return res
+_safe_path = safe_path
 
 
 PROGRAM_DIR = os.environ.get("PROGRAM_DIR", str(Path(__file__).resolve().parent.parent)).strip()
@@ -104,15 +109,7 @@ def load_master_db(master_db_path: str, collection_title: str, record_type_name:
 
 
 def save_master_db(master_db_path: str, master_data: Dict[str, Any]) -> None:
-    os.makedirs(os.path.dirname(master_db_path) or ".", exist_ok=True)
-    tmp_path = Path(master_db_path).with_suffix(".tmp")
-    try:
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(master_data, f, indent=2, ensure_ascii=False)
-        tmp_path.replace(master_db_path)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
+    atomic_write_json(master_db_path, master_data, indent=2, ensure_ascii=False)
 
 
 def append_scaffold_sheets(master_data: Dict[str, Any], new_sheets: List[Dict[str, Any]]) -> None:
@@ -389,26 +386,11 @@ def collection_for_volume(volume: Any, volume_range: Any) -> Optional[Tuple[str,
 
 def load_checkpoint(checkpoint_path: str) -> Dict[str, Any]:
     default = {"pids": [], "downloaded_pids": [], "failed_pids": {}}
-    if os.path.exists(checkpoint_path):
-        try:
-            with open(checkpoint_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"[WARN] Failed to read checkpoint {checkpoint_path}: {e}")
-            return default
-    return default
+    return jsonio_load_checkpoint(checkpoint_path, default=default)
 
 
 def save_checkpoint(checkpoint_path: str, data: Dict[str, Any]) -> None:
-    os.makedirs(os.path.dirname(checkpoint_path) or ".", exist_ok=True)
-    tmp_path = Path(checkpoint_path).with_suffix(".tmp")
-    try:
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        tmp_path.replace(checkpoint_path)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
+    jsonio_save_checkpoint(checkpoint_path, data, indent=2, ensure_ascii=False)
 
 
 def retrieve_volume_pids(vol: str, cookies: Dict[str, str], checkpoint_path: str,

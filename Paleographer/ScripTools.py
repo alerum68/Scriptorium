@@ -17,7 +17,6 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from dotenv import load_dotenv
 
 # noinspection DuplicatedCode
 if hasattr(sys.stdout, "reconfigure"):
@@ -37,9 +36,9 @@ except (ImportError, ValueError):
     # noinspection PyUnresolvedReferences,PyPep8Naming
     import LAC as voyageur_lac
 
-ROOT_ENV = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(ROOT_ENV, override=True)
-load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+from Commissioner.envkit import load_tool_env  # noqa: E402
+
+load_tool_env(Path(__file__).resolve().parent)
 
 
 # ==============================================================================

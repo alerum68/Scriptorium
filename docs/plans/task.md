@@ -37,3 +37,4 @@
 ormalize_enum and 
 ormalize_sex_code into Commissioner/normalization.py. |
 | DUP-6: get_census_era | Done | Extracted standalone get_census_era into Commissioner/census_consts.py. |
+| DUP-7 to DUP-12: Core Deduplication | Done | Centralized safe_path, .env loading, .pmt parsing, prompt directory tiers, load_event_types, and atomic JSON io. |
