@@ -6,6 +6,7 @@ import json
 import os
 import re
 import xml.etree.ElementTree as etree
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union, cast
 
@@ -87,6 +88,38 @@ def get_census_template_id(year: int) -> int:
 
 CENSUS_ERA = get_census_era(CENSUS_YEAR)
 CENSUS_SOURCE_ID = Utils.resolve_source_id(f"Census_{CENSUS_YEAR}") if CENSUS_YEAR else Utils.NEXT_AUTO_SOURCE_ID
+
+# The module-level constants above (CALL_NUMBER, REPOSITORY, STATE, CENSUS_YEAR, etc.) are
+# now read-only factory defaults for CensusRunConfig, not per-run mutable state - they are
+# never reassigned after import. run_census_flavor() builds a fresh CensusRunConfig each
+# call and threads it explicitly through every builder function below (ARCH-3), so two
+# invocations in the same process can no longer leak state (e.g. a stale COUNTY/STATE)
+# into each other the way the old `global X; X = ...` pattern did.
+
+
+@dataclass
+class CensusRunConfig:
+    """Per-run collection/location/source metadata for a single run_census_flavor() call."""
+    call_number: str = CALL_NUMBER
+    repository: str = REPOSITORY
+    repository_loc: str = REPOSITORY_LOC
+    collection_url: str = COLLECTION_URL
+    collection_name: str = COLLECTION_NAME
+    country: str = COUNTRY
+    default_collection_name: str = DEFAULT_COLLECTION_NAME
+    publisher: str = PUBLISHER
+    pub_loc: str = PUB_LOC
+    image_dir: str = IMAGE_DIR
+    census_year: int = CENSUS_YEAR
+    census_era: str = CENSUS_ERA
+    apid_db: str = APID_DB
+    state: str = STATE
+    county: str = COUNTY
+    township: str = TOWNSHIP
+    enumeration_district: str = ENUMERATION_DISTRICT
+    film_number: str = FILM_NUMBER
+    roll_number: str = ROLL_NUMBER
+    census_source_id: Union[int, str] = CENSUS_SOURCE_ID
 
 
 def get_gender(val: Union[pd.Series, dict, CellValue]) -> str:
@@ -246,7 +279,7 @@ def get_source_templates(template_ids_used: set) -> List[str]:
 # ==========================================
 
 
-def get_age(row: pd.Series) -> float:
+def get_age(row: pd.Series, cfg: CensusRunConfig) -> float:
     def parse_num(val: CellValue) -> Optional[float]:
         try:
             if pd.notna(val) and val is not None:
@@ -259,18 +292,18 @@ def get_age(row: pd.Series) -> float:
 
     b_yr = parse_num(row.get('Birth Year'))
     if b_yr is not None:
-        return float(CENSUS_YEAR) - b_yr
+        return float(cfg.census_year) - b_yr
 
     age = parse_num(row.get('Age'))
     return age if age is not None else -1.0
 
 
-def evaluate_spouse_match(a: pd.Series, b: pd.Series) -> Tuple[bool, float, str]:
+def evaluate_spouse_match(a: pd.Series, b: pd.Series, cfg: CensusRunConfig) -> Tuple[bool, float, str]:
     g_a = get_gender(a.get('Gender', ''))
     g_b = get_gender(b.get('Gender', ''))
     if 'U' in (g_a, g_b) or g_a == g_b:
         return False, 0.0, "gender mismatch or unknown"
-    age_a, age_b = get_age(a), get_age(b)
+    age_a, age_b = get_age(a, cfg), get_age(b, cfg)
     if (age_a != -1 and age_a < MIN_MARRIAGE_AGE) or (age_b != -1 and age_b < MIN_MARRIAGE_AGE):
         return False, 0.0, "below minimum marriage age"
     if age_a != -1 and age_b != -1 and abs(age_a - age_b) >= MAX_SPOUSE_AGE_GAP:
@@ -284,12 +317,12 @@ def evaluate_spouse_match(a: pd.Series, b: pd.Series) -> Tuple[bool, float, str]
     return True, 0.4, "surname missing for one party -- unverified pairing"
 
 
-def evaluate_child_match(unit: HouseholdUnit, member: pd.Series) -> Tuple[bool, float, str]:
+def evaluate_child_match(unit: HouseholdUnit, member: pd.Series, cfg: CensusRunConfig) -> Tuple[bool, float, str]:
     h = unit.get('husband')
     w = unit.get('wife')
     if h is None and w is None:
         return False, 0.0, "no parents in unit"
-    m_age = get_age(member)
+    m_age = get_age(member, cfg)
     m_sur = Utils.clean_val(member.get('Surname'))
     if h is not None:
         u_sur = Utils.clean_val(h.get('Surname'))
@@ -305,7 +338,7 @@ def evaluate_child_match(unit: HouseholdUnit, member: pd.Series) -> Tuple[bool, 
     def in_rng(parent: Optional[pd.Series], gap_rng: Tuple[int, int]) -> Optional[bool]:
         if parent is None:
             return None
-        p_age = get_age(parent)
+        p_age = get_age(parent, cfg)
         if p_age != -1:
             return gap_rng[0] <= (p_age - m_age) <= gap_rng[1]
         return None
@@ -326,10 +359,11 @@ def evaluate_child_match(unit: HouseholdUnit, member: pd.Series) -> Tuple[bool, 
     return True, surname_conf, "age and surname consistent with parentage"
 
 
-def find_parent(units: List[HouseholdUnit], member: pd.Series) -> Optional[Tuple[int, float, str]]:
+def find_parent(units: List[HouseholdUnit], member: pd.Series,
+                cfg: CensusRunConfig) -> Optional[Tuple[int, float, str]]:
     best: Optional[Tuple[int, float, str]] = None
     for i in range(len(units) - 1, -1, -1):
-        plausible, match_conf, match_rsn = evaluate_child_match(units[i], member)
+        plausible, match_conf, match_rsn = evaluate_child_match(units[i], member, cfg)
         if plausible:
             if best is None:
                 best = (i, match_conf, match_rsn)
@@ -361,7 +395,8 @@ def sort_group_by_line_number(group: pd.DataFrame) -> pd.DataFrame:
         '_line_sort_key', kind='stable', na_position='last').drop(columns='_line_sort_key')
 
 
-def parse_household(group: pd.DataFrame) -> Tuple[List[HouseholdUnit], List[pd.Series], List[FlagRecord]]:
+def parse_household(group: pd.DataFrame,
+                    cfg: CensusRunConfig) -> Tuple[List[HouseholdUnit], List[pd.Series], List[FlagRecord]]:
     members = [row for _, row in group.iterrows()]
     n = len(members)
     flags: List[FlagRecord] = []
@@ -393,12 +428,12 @@ def parse_household(group: pd.DataFrame) -> Tuple[List[HouseholdUnit], List[pd.S
     i = 1
     if n > 1:
         sp_mem = members[1]
-        plausible, sp_conf, sp_reason = evaluate_spouse_match(head, sp_mem)
+        plausible, sp_conf, sp_reason = evaluate_spouse_match(head, sp_mem, cfg)
         head_gender = get_gender(head)
         sp_gender = get_gender(sp_mem)
         if not plausible and head_gender != sp_gender and 'U' not in (head_gender, sp_gender):
-            sp_age = get_age(sp_mem)
-            if sp_age != -1 and any(get_age(x) > sp_age for x in members[2:]):
+            sp_age = get_age(sp_mem, cfg)
+            if sp_age != -1 and any(get_age(x, cfg) > sp_age for x in members[2:]):
                 plausible, sp_conf, sp_reason = True, 0.8, "step-parent pattern"
         if plausible:
             units.append(make_unit(head, sp_mem))
@@ -417,10 +452,10 @@ def parse_household(group: pd.DataFrame) -> Tuple[List[HouseholdUnit], List[pd.S
         m = members[i]
         if i + 1 < n and (i + 1) not in consumed:
             nxt = members[i + 1]
-            sub_plausible, sub_sp_conf, sub_sp_reason = evaluate_spouse_match(m, nxt)
+            sub_plausible, sub_sp_conf, sub_sp_reason = evaluate_spouse_match(m, nxt, cfg)
             if sub_plausible:
-                fit_m = find_parent(units, m)
-                fit_nxt = find_parent(units, nxt)
+                fit_m = find_parent(units, m, cfg)
+                fit_nxt = find_parent(units, nxt, cfg)
                 m_is_child = False
                 m_unit_idx = -1
                 if fit_m is not None:
@@ -435,8 +470,8 @@ def parse_household(group: pd.DataFrame) -> Tuple[List[HouseholdUnit], List[pd.S
                     m_unit = units[m_unit_idx]
                     last_c_age = -1.0
                     if m_unit['children']:
-                        last_c_age = get_age(m_unit['children'][-1])
-                    m_age = get_age(m)
+                        last_c_age = get_age(m_unit['children'][-1], cfg)
+                    m_age = get_age(m, cfg)
                     if last_c_age != -1 and m_age != -1 and m_age > last_c_age and m_age >= MIN_MARRIAGE_AGE:
                         anc_member = m if Utils.clean_val(
                             m.get('Surname')) == Utils.clean_val(head.get('Surname')) else nxt
@@ -472,7 +507,7 @@ def parse_household(group: pd.DataFrame) -> Tuple[List[HouseholdUnit], List[pd.S
                     i += 2
                     continue
 
-        match = find_parent(units, m)
+        match = find_parent(units, m, cfg)
         if match:
             idx, match_conf, match_rsn = match
             units[idx]['children'].append(m)
@@ -531,7 +566,8 @@ def find_relationship_column(columns: Union[pd.Index, List[str]]) -> Optional[st
 
 
 def resolve_cross_family_links(
-        units: List[HouseholdUnit], unrelated: List[pd.Series], flags: List[FlagRecord]
+        units: List[HouseholdUnit], unrelated: List[pd.Series], flags: List[FlagRecord],
+        cfg: CensusRunConfig
 ) -> Tuple[List[HouseholdUnit], List[pd.Series], List[FlagRecord]]:
     for unit in units:
         if unit.get('type') == 'spouse_parents':
@@ -551,7 +587,7 @@ def resolve_cross_family_links(
             if not maiden_surname:
                 continue
 
-            wife_age = get_age(wife)
+            wife_age = get_age(wife, cfg)
 
             plausible_parent_unit = None
             parent_name = ""
@@ -565,7 +601,7 @@ def resolve_cross_family_links(
                 ):
                     if isinstance(pp, pd.Series):
                         pp_sur = Utils.clean_val(pp.get('Surname'))
-                        pp_age = get_age(pp)
+                        pp_age = get_age(pp, cfg)
 
                         if pp_sur == maiden_surname:
                             if pp_age == -1 or wife_age == -1 or (
@@ -607,7 +643,8 @@ def append_unit_if_not_empty(units: List[HouseholdUnit], unit: Optional[Househol
 
 
 def parse_household_relational(
-        group: pd.DataFrame) -> Tuple[List[HouseholdUnit], List[pd.Series], List[FlagRecord]]:
+        group: pd.DataFrame,
+        cfg: CensusRunConfig) -> Tuple[List[HouseholdUnit], List[pd.Series], List[FlagRecord]]:
     # Anyone enumerated at an institution (group
     # quarters - hospital, prison, boarding house, etc.) gets no family/spouse/parent-child
     # links at all, just their own individual record - if any member of this group is an
@@ -618,11 +655,11 @@ def parse_household_relational(
 
     rel_col = find_relationship_column(group.columns)
     if rel_col is None:
-        return parse_household(group)
+        return parse_household(group, cfg)
 
     has_head = any(normalize_relationship(m.get(rel_col, '')) in REL_HEAD for _, m in group.iterrows())
     if not has_head:
-        return parse_household(group)
+        return parse_household(group, cfg)
 
     flags: List[FlagRecord] = []
     unrelated: List[pd.Series] = []
@@ -781,7 +818,7 @@ def parse_household_relational(
     append_unit_if_not_empty(units, head_parents_unit)
     append_unit_if_not_empty(units, spouse_parents_unit)
 
-    return resolve_cross_family_links(units, unrelated, flags)
+    return resolve_cross_family_links(units, unrelated, flags, cfg)
 
 # ==========================================
 # CENSUS FLAVOR: GEDCOM EMISSION
@@ -815,7 +852,7 @@ def strip_ark_type_prefix(value: str) -> str:
 
 def build_census_citation(row: pd.Series, rec_id: str, m_id: str, real_page: str, target_software: str,
                           row_town: str, row_county: str, row_state: str, row_roll: str, row_film: str,
-                          row_ed: str = "") -> List[str]:
+                          row_ed: str, cfg: CensusRunConfig) -> List[str]:
     giv = Utils.clean_val(row.get('Given Name'))
     sur = Utils.clean_val(row.get('Surname'))
     person_str = f"{giv} {sur}".strip()
@@ -826,12 +863,12 @@ def build_census_citation(row: pd.Series, rec_id: str, m_id: str, real_page: str
     fs_url = get_row_val(row, ['FamilySearch_URL'], '')
 
     ancestry_url = get_row_val(row, ['Extracted_URL'], '') or (
-        f"https://www.ancestry.com/search/collections/{APID_DB}/records/{rec_id}"
-        if (APID_DB and rec_id) else "")
+        f"https://www.ancestry.com/search/collections/{cfg.apid_db}/records/{rec_id}"
+        if (cfg.apid_db and rec_id) else "")
 
-    cit = [f"2 SOUR @S{CENSUS_SOURCE_ID}@"]
+    cit = [f"2 SOUR @S{cfg.census_source_id}@"]
 
-    caps = CENSUS_TEMPLATES[get_census_template_id(CENSUS_YEAR)]
+    caps = CENSUS_TEMPLATES[get_census_template_id(cfg.census_year)]
     ed_suffix = f", ED {row_ed}" if (caps["ed"] and row_ed) else ""
     row_loc = ", ".join(filter(None, [row_town, row_county, row_state]))
 
@@ -841,7 +878,7 @@ def build_census_citation(row: pd.Series, rec_id: str, m_id: str, real_page: str
             page_parts.append(fam_num)
         page_parts.append(person_str)
 
-        collection_title = COLLECTION_NAME or DEFAULT_COLLECTION_NAME
+        collection_title = cfg.collection_name or cfg.default_collection_name
 
         detail_fields = [
             ("Page", f"p. {real_page}" if real_page else ""),
@@ -852,7 +889,7 @@ def build_census_citation(row: pd.Series, rec_id: str, m_id: str, real_page: str
              else (fam_num or dwell_num)),
             ("Repository", "Ancestry.com" if not fs_url else "FamilySearch"),
             ("URL", ancestry_url),
-            ("RefNumber", f"APID 1,{APID_DB}::{rec_id}" if (APID_DB and rec_id) else ""),
+            ("RefNumber", f"APID 1,{cfg.apid_db}::{rec_id}" if (cfg.apid_db and rec_id) else ""),
         ]
         cit.append(f"3 PAGE {'; '.join(filter(None, page_parts))}")
         # Bare FIELD tags render Free Form; RM needs them under _TMPLT. No TID here -
@@ -865,7 +902,7 @@ def build_census_citation(row: pd.Series, rec_id: str, m_id: str, real_page: str
 
         cit.append("3 DATA")
 
-        if APID_DB and rec_id:
+        if cfg.apid_db and rec_id:
             cit.extend(["3 _WEBTAG",
                         f"4 NAME Anc- {collection_title}",
                         f"4 URL {ancestry_url}"])
@@ -881,7 +918,7 @@ def build_census_citation(row: pd.Series, rec_id: str, m_id: str, real_page: str
             f"3 PAGE {person_str}; p. {real_page}, dwell. {dwell_num}, fam. {fam_num}; {row_town}{ed_suffix}; "
             f"{row_county}; {row_state}; Roll {row_roll}; Film {row_film}")
         cit.append("3 QUAY 3")
-        if APID_DB and rec_id:
+        if cfg.apid_db and rec_id:
             cit.extend([f"3 _LINK {link_url}", f"3 NOTE {link_url}"])
         if fs_url:
             cit.extend([f"3 _LINK {fs_url}", f"3 NOTE {fs_url}"])
@@ -889,7 +926,8 @@ def build_census_citation(row: pd.Series, rec_id: str, m_id: str, real_page: str
     return cit
 
 
-def build_row_citation(idx: Any, row: pd.Series, target_software: str) -> Tuple[str, List[str]]:
+def build_row_citation(idx: Any, row: pd.Series, target_software: str,
+                       cfg: CensusRunConfig) -> Tuple[str, List[str]]:
     """Computes (rec_id, citation_lines) for a row on its own. Every input build_census_citation()
     needs is a pure function of the row/idx (no dependency on iteration order or media_dict
     state), so - unlike the main per-row loop in build_gedcom_from_census() - this is safe to
@@ -897,28 +935,28 @@ def build_row_citation(idx: Any, row: pd.Series, target_software: str) -> Tuple[
     on a DIFFERENT person's (a parent's) record."""
     row_pid = Utils.clean_val(row.get('PID', row.get('pid', '')))
     rec_id = row_pid if row_pid else str(ANCESTRY_START_RECORD_ID + cast(int, idx))
-    row_state = get_row_val(row, ['State', 'State/Province'], '') or STATE
-    row_county = get_row_val(row, ['County', 'Parish'], '') or COUNTY
-    row_town = get_row_val(row, ['City', 'Township', 'Town', 'Civil Division', 'Ward'], '') or TOWNSHIP
-    row_roll = get_row_val(row, ['Roll', 'Roll Number', 'NARA Roll'], '') or ROLL_NUMBER
-    row_film = get_row_val(row, ['Film', 'FHL Film Number', 'Microfilm'], '') or FILM_NUMBER
-    row_ed = get_row_val(row, ['Enumeration District', 'Enumeration_District', 'ED'], '') or ENUMERATION_DISTRICT
+    row_state = get_row_val(row, ['State', 'State/Province'], '') or cfg.state
+    row_county = get_row_val(row, ['County', 'Parish'], '') or cfg.county
+    row_town = get_row_val(row, ['City', 'Township', 'Town', 'Civil Division', 'Ward'], '') or cfg.township
+    row_roll = get_row_val(row, ['Roll', 'Roll Number', 'NARA Roll'], '') or cfg.roll_number
+    row_film = get_row_val(row, ['Film', 'FHL Film Number', 'Microfilm'], '') or cfg.film_number
+    row_ed = get_row_val(row, ['Enumeration District', 'Enumeration_District', 'ED'], '') or cfg.enumeration_district
     page = get_row_val(row, ['Page', 'Page_Number', 'Page Number'], '')
     real_page = get_row_val(row, ['Real Page', 'Real_Page', 'Page', 'Page_Number'], '')
     image_id_val = Utils.clean_val(row.get('Image_ID', '')) or f"{BASE_ID}_{page.zfill(5)}"
     m_id = f"@M{Path(image_id_val).stem}@"
     cit = build_census_citation(row, rec_id, m_id, real_page, target_software, row_town, row_county, row_state,
-                                row_roll, row_film, row_ed)
+                                row_roll, row_film, row_ed, cfg)
     return rec_id, cit
 
 
-def get_census_notes(row: pd.Series) -> List[str]:
+def get_census_notes(row: pd.Series, cfg: CensusRunConfig) -> List[str]:
     note_cols = ['Quality', 'Real Estate Value', 'Personal Estate Value', 'Cannot Read, Write', 'Disability Condition',
                  'Deaf Dumb Blind Insane', 'Idiotic Pauper Convict']
     notes = [f"{c}: {Utils.clean_val(row[c])}" for c in note_cols if c in row and Utils.clean_val(row[c])]
     if institution_note := build_institution_note(row):
         notes.append(institution_note)
-    if CENSUS_YEAR == 1870:
+    if cfg.census_year == 1870:
         flags = {'Father Foreign Born': "Father of foreign birth.", 'Mother Foreign Born': "Mother of foreign birth.",
                  'Male Citizen Over 21': "Male citizen of the United States of 21 years of age and upwards.",
                  'Voting Rights Denied': "Male citizen of 21 years of age and upwards whose right to vote is "
@@ -1056,7 +1094,7 @@ def is_foreign_birthplace(birth_place: str) -> bool:
     return True
 
 
-def get_occupation_value(row: pd.Series) -> Tuple[str, str]:
+def get_occupation_value(row: pd.Series, cfg: CensusRunConfig) -> Tuple[str, str]:
     from Commissioner import census_codes
 
     # 1. Primary Selection - code-first: a decoded Item_C_Occupation code wins even
@@ -1064,7 +1102,7 @@ def get_occupation_value(row: pd.Series) -> Tuple[str, str]:
     # capitalize_text_string (not clean_val alone) on every text-sourced fallback -
     # a real census source can hand back ALL-CAPS or lowercase text, and every other
     # proper-noun-like census field in this module already normalizes to Title Case.
-    base_occ = census_codes.decode(CENSUS_YEAR, "Item_C_Occupation", row.get('Occupation Code'))
+    base_occ = census_codes.decode(cfg.census_year, "Item_C_Occupation", row.get('Occupation Code'))
     if not base_occ:
         base_occ = Utils.capitalize_text_string(row.get('Usual Occupation'))
     if not base_occ:
@@ -1073,7 +1111,7 @@ def get_occupation_value(row: pd.Series) -> Tuple[str, str]:
         base_occ = Utils.capitalize_text_string(row.get('Trade or Profession'))
 
     employer = Utils.capitalize_text_string(row.get('Employer'))
-    industry = census_codes.decode(CENSUS_YEAR, "Item_C_Industry", row.get('Industry Code'))
+    industry = census_codes.decode(cfg.census_year, "Item_C_Industry", row.get('Industry Code'))
     if not industry:
         industry = Utils.capitalize_text_string(row.get('Industry'))
 
@@ -1097,7 +1135,7 @@ def get_occupation_value(row: pd.Series) -> Tuple[str, str]:
         occ_str += f", working in {industry}"
 
     # 4. Notes
-    class_of_worker = census_codes.decode(CENSUS_YEAR, "Item_C_Class_Of_Worker", row.get('Class of Worker Code'))
+    class_of_worker = census_codes.decode(cfg.census_year, "Item_C_Class_Of_Worker", row.get('Class of Worker Code'))
     if not class_of_worker:
         class_of_worker = Utils.clean_val(row.get('Class of Worker'))
 
@@ -1114,32 +1152,32 @@ def get_occupation_value(row: pd.Series) -> Tuple[str, str]:
     return occ_str, notes_str
 
 
-def get_education_value(row: pd.Series) -> Optional[str]:
+def get_education_value(row: pd.Series, cfg: CensusRunConfig) -> Optional[str]:
     from Commissioner import census_codes
 
     grade = get_row_val(row, ['Highest Grade of School Completed', 'Highest Grade Completed'], '')
     if grade:
         code = "0" if grade.upper() == "O" else grade
-        return census_codes.decode(CENSUS_YEAR, "Education", code) or grade
+        return census_codes.decode(cfg.census_year, "Education", code) or grade
     if Utils.clean_val(row.get('Attended School')):
         return ''
     return None
 
 
-def get_race_value(row: pd.Series) -> str:
+def get_race_value(row: pd.Series, cfg: CensusRunConfig) -> str:
     from Commissioner import census_codes
 
     raw = get_row_val(row, ['Race', 'Color'], '')
-    decoded = census_codes.decode(CENSUS_YEAR, "Race", raw)
+    decoded = census_codes.decode(cfg.census_year, "Race", raw)
     return decoded or Utils.capitalize_text_string(raw)
 
 
-def get_nationality_value(row: pd.Series, birth_place: str) -> str:
+def get_nationality_value(row: pd.Series, birth_place: str, cfg: CensusRunConfig) -> str:
     from Commissioner import census_codes
 
     code = Utils.clean_val(row.get('Birthplace Code'))
     if code:
-        place, is_foreign = census_codes.decode_birthplace(CENSUS_YEAR, code)
+        place, is_foreign = census_codes.decode_birthplace(cfg.census_year, code)
         if place is not None:
             return place if is_foreign else ""
 
@@ -1157,13 +1195,14 @@ def get_birth_date(row: pd.Series, birth_year: float) -> str:
     return f"{abbr} {int(birth_year)}" if abbr else str(int(birth_year))
 
 
-def build_residence_event(col_name: str, val: str, cit: List[str], loc: str, street: str = "") -> List[str]:
+def build_residence_event(col_name: str, val: str, cit: List[str], loc: str, street: str,
+                          cfg: CensusRunConfig) -> List[str]:
     year_match = RESIDENCE_YEAR_PATTERN.search(col_name)
     if year_match:
         date_val = year_match.group(1)
     else:
         rel_match = RESIDENCE_RELATIVE_PATTERN.search(col_name)
-        date_val = str(CENSUS_YEAR - int(rel_match.group(1))) if rel_match else str(CENSUS_YEAR)
+        date_val = str(cfg.census_year - int(rel_match.group(1))) if rel_match else str(cfg.census_year)
 
     evt = ["1 RESI", f"2 DATE {date_val}", f"2 PLAC {val or loc}"]
     if street:
@@ -1173,7 +1212,7 @@ def build_residence_event(col_name: str, val: str, cit: List[str], loc: str, str
 
 
 def build_dynamic_events_and_notes(row: pd.Series, cit: List[str], giv: str, columns: List[str], loc: str,
-                                   street: str) -> Tuple[List[str], List[str]]:
+                                   street: str, cfg: CensusRunConfig) -> Tuple[List[str], List[str]]:
     events: List[str] = []
     notes: List[str] = []
     for col_str in columns:
@@ -1185,7 +1224,7 @@ def build_dynamic_events_and_notes(row: pd.Series, cit: List[str], giv: str, col
         if not val:
             continue
         tag = next((t for pat, t in DYNAMIC_EVENT_RULES if pat.search(col_str)), None)
-        if CENSUS_ERA == 'pre1850' and tag not in PRE1850_ALLOWED_TAGS:
+        if cfg.census_era == 'pre1850' and tag not in PRE1850_ALLOWED_TAGS:
             tag = None
 
         if tag == 'IMMI':
@@ -1195,12 +1234,12 @@ def build_dynamic_events_and_notes(row: pd.Series, cit: List[str], giv: str, col
             year_match = re.search(r'\d{4}', val)
             events.extend(["1 NATU", f"2 DATE {year_match.group(0) if year_match else val}", "2 _PROOF proven"] + cit)
         elif tag == 'NATU':
-            events.extend(["1 NATU", f"2 DATE {CENSUS_YEAR}", f"2 NOTE {col_str}: {val}", "2 _PROOF proven"] + cit)
+            events.extend(["1 NATU", f"2 DATE {cfg.census_year}", f"2 NOTE {col_str}: {val}", "2 _PROOF proven"] + cit)
         elif tag == 'MILITARY':
-            events.extend(["1 EVEN", "2 TYPE Military Service", f"2 DATE {CENSUS_YEAR}", f"2 NOTE {col_str}: {val}",
-                           "2 _PROOF proven"] + cit)
+            events.extend(["1 EVEN", "2 TYPE Military Service", f"2 DATE {cfg.census_year}",
+                           f"2 NOTE {col_str}: {val}", "2 _PROOF proven"] + cit)
         elif tag == 'RESI':
-            events.extend(build_residence_event(col_str, val, cit, loc, street))
+            events.extend(build_residence_event(col_str, val, cit, loc, street, cfg))
         elif tag == 'RELI':
             events.extend([f"1 RELI {val}", "2 _PROOF proven"] + cit)
         elif tag == 'MAIDEN':
@@ -1213,7 +1252,7 @@ def build_dynamic_events_and_notes(row: pd.Series, cit: List[str], giv: str, col
 
 def build_census_task(rec_id: str, giv: str, sur: str, record_label: str, reasons: List[Tuple[str, float]],
                       citation_block: List[str], media_path: Union[str, Path], media_title: str,
-                      target_software: str) -> Tuple[List[str], str]:
+                      target_software: str, cfg: CensusRunConfig) -> Tuple[List[str], str]:
     task_id = f"@T{rec_id}@"
     summary = "; ".join(r for r, _ in reasons)
     _, _, folder_name = evaluate_task_priority(summary)
@@ -1224,8 +1263,8 @@ def build_census_task(rec_id: str, giv: str, sur: str, record_label: str, reason
     if citation_block and citation_block[0].startswith("2 SOUR"):
         task_citation = Utils.dedent_citation_lines(citation_block)
 
-    link_url = f"https://www.ancestry.com/search/collections/{APID_DB}/records/{rec_id}"
-    weblink = Utils.weblink_lines(link_url, COLLECTION_NAME or DEFAULT_COLLECTION_NAME,
+    link_url = f"https://www.ancestry.com/search/collections/{cfg.apid_db}/records/{rec_id}"
+    weblink = Utils.weblink_lines(link_url, cfg.collection_name or cfg.default_collection_name,
                                   target_software)
 
     task_records = [f"0 {task_id} _TASK",
@@ -1238,17 +1277,17 @@ def build_census_task(rec_id: str, giv: str, sur: str, record_label: str, reason
     return task_records, folder_name
 
 
-def get_census_sources(target_software: str) -> List[str]:
+def get_census_sources(target_software: str, cfg: CensusRunConfig) -> List[str]:
     tid = 10008
-    source_title = COLLECTION_NAME or DEFAULT_COLLECTION_NAME
-    repository = Utils.clean_val(REPOSITORY) or "Ancestry.com Operations, Inc."
+    source_title = cfg.collection_name or cfg.default_collection_name
+    repository = Utils.clean_val(cfg.repository) or "Ancestry.com Operations, Inc."
     primary_creator = ("United States. Bureau of the Census"
                        if ("U.S." in source_title or "United States" in source_title)
                        else (Utils.clean_val(Utils.ORG_NAME) or "Census Bureau"))
     department = "National Archives and Records Administration"
-    date_str = str(CENSUS_YEAR) if CENSUS_YEAR else ""
-    publisher = Utils.clean_val(PUBLISHER)
-    pub_loc = Utils.clean_val(PUB_LOC)
+    date_str = str(cfg.census_year) if cfg.census_year else ""
+    publisher = Utils.clean_val(cfg.publisher)
+    pub_loc = Utils.clean_val(cfg.pub_loc)
 
     if target_software == "RM":
         # RM's <...> Footnote/Bibliography omission logic only recognizes a field as
@@ -1270,7 +1309,7 @@ def get_census_sources(target_software: str) -> List[str]:
                 if (pub_loc and publisher)
                 else f"{primary_creator}, {department}. {date_str}. {source_title}.")
 
-        return [f"0 @S{CENSUS_SOURCE_ID}@ SOUR", f"1 REFN {CENSUS_SOURCE_ID}",
+        return [f"0 @S{cfg.census_source_id}@ SOUR", f"1 REFN {cfg.census_source_id}",
                 f"1 ABBR {source_title}",
                 f"1 TITL {source_title}",
                 f"1 _BIBL {bibl}",
@@ -1279,18 +1318,18 @@ def get_census_sources(target_software: str) -> List[str]:
             f"1 PUBL Researcher: {Utils.RESEARCHER}."] + Utils.weblink_lines(
             Utils.MGS_GROUP_URL, "Facebook Group", "RM") + Utils.weblink_lines(Utils.ANCESTRY_GROUP_URL, "Ancestry Group", "RM")  # noqa: E501
     else:
-        return [f"0 @S{CENSUS_SOURCE_ID}@ SOUR", f"1 REFN {CENSUS_SOURCE_ID}",
+        return [f"0 @S{cfg.census_source_id}@ SOUR", f"1 REFN {cfg.census_source_id}",
                 f"1 TITL {source_title}",
-                f"1 PUBL {PUB_LOC}: {PUBLISHER}", "1 REPO @R1@", f"1 _APID 1,{APID_DB}::0",
+                f"1 PUBL {cfg.pub_loc}: {cfg.publisher}", "1 REPO @R1@", f"1 _APID 1,{cfg.apid_db}::0",
                 f"0 {Utils.ROOT_SOURCE_ID} SOUR", f"1 TITL {Utils.ORG_NAME}", f"1 AUTH Research conducted by {Utils.RESEARCHER}.",  # noqa: E501
                 f"1 _LINK {Utils.MGS_GROUP_URL}", "2 NAME Facebook Group", f"1 _LINK {Utils.ANCESTRY_GROUP_URL}",
                 "2 NAME Ancestry Group"]
 
 
-def get_location_string(row: pd.Series) -> str:
-    row_state = get_row_val(row, ['State', 'State/Province'], '') or STATE
-    row_county = get_row_val(row, ['County', 'Parish'], '') or COUNTY
-    row_town = get_row_val(row, ['City', 'Township', 'Town', 'Civil Division', 'Ward'], '') or TOWNSHIP
+def get_location_string(row: pd.Series, cfg: CensusRunConfig) -> str:
+    row_state = get_row_val(row, ['State', 'State/Province'], '') or cfg.state
+    row_county = get_row_val(row, ['County', 'Parish'], '') or cfg.county
+    row_town = get_row_val(row, ['City', 'Township', 'Town', 'Civil Division', 'Ward'], '') or cfg.township
     row_country = get_row_val(row, ['Country'], '') or 'USA'
 
     # 'Residence Place Fallback' (FamilySearch's
@@ -1344,7 +1383,7 @@ def build_alternate_birth_lines(alt_entries: List[dict], birth_year: Optional[fl
     return lines
 
 
-def build_gedcom_from_census(df_in: pd.DataFrame, target_software: str) -> None:
+def build_gedcom_from_census(df_in: pd.DataFrame, target_software: str, cfg: CensusRunConfig) -> None:
     df = df_in.copy()
 
     fam_col = next((c for c in ['Family Number', 'Family', 'Household Number', 'Household'] if c in df.columns), None)
@@ -1385,12 +1424,12 @@ def build_gedcom_from_census(df_in: pd.DataFrame, target_software: str) -> None:
         units: List[HouseholdUnit]
         unrelated: List[pd.Series]
         flags: List[FlagRecord]
-        if CENSUS_ERA == 'pre1850':
+        if cfg.census_era == 'pre1850':
             units, unrelated, flags = [], [], []
-        elif CENSUS_ERA == 'heuristic':
-            units, unrelated, flags = parse_household(group)
+        elif cfg.census_era == 'heuristic':
+            units, unrelated, flags = parse_household(group, cfg)
         else:
-            units, unrelated, flags = parse_household_relational(group)
+            units, unrelated, flags = parse_household_relational(group, cfg)
 
         for flag in flags:
             flag_person = flag.get('person')
@@ -1451,7 +1490,7 @@ def build_gedcom_from_census(df_in: pd.DataFrame, target_software: str) -> None:
 
             if (isinstance(h, pd.Series) and pd.notna(h.get('Married within Year'))) or (
                     isinstance(w, pd.Series) and pd.notna(w.get('Married within Year'))):
-                fam_block_lines[f_id].extend(["1 MARR", f"2 DATE EST {CENSUS_YEAR}", "2 _PROOF proven"])
+                fam_block_lines[f_id].extend(["1 MARR", f"2 DATE EST {cfg.census_year}", "2 _PROOF proven"])
 
     # FTHR_BIR_PLACE/MTHR_BIR_PLACE describe a relative,
     # not the row's own facts. When that parent was already extracted as a real person in
@@ -1482,7 +1521,7 @@ def build_gedcom_from_census(df_in: pd.DataFrame, target_software: str) -> None:
             continue
 
         child_sur = Utils.clean_val(row.get('Surname'))
-        rec_id, cit = build_row_citation(idx, row, target_software)
+        rec_id, cit = build_row_citation(idx, row, target_software, cfg)
         existing_father_idx, existing_mother_idx = child_parent_idx.get(idx, (None, None))
 
         father_place_for_synth: Optional[str] = None
@@ -1550,16 +1589,17 @@ def build_gedcom_from_census(df_in: pd.DataFrame, target_software: str) -> None:
         sur = Utils.clean_val(row.get('Surname'))
         gen = get_gender(row)
 
-        row_loc = get_location_string(row)
+        row_loc = get_location_string(row, cfg)
 
-        row_state = get_row_val(row, ['State', 'State/Province'], '') or STATE
-        row_county = get_row_val(row, ['County', 'Parish'], '') or COUNTY
-        row_town = get_row_val(row, ['City', 'Township', 'Town', 'Civil Division', 'Ward'], '') or TOWNSHIP
+        row_state = get_row_val(row, ['State', 'State/Province'], '') or cfg.state
+        row_county = get_row_val(row, ['County', 'Parish'], '') or cfg.county
+        row_town = get_row_val(row, ['City', 'Township', 'Town', 'Civil Division', 'Ward'], '') or cfg.township
         row_street = get_row_val(row, ['Street', 'Street Address', 'Address', 'House Number'], '')
 
-        row_roll = get_row_val(row, ['Roll', 'Roll Number', 'NARA Roll'], '') or ROLL_NUMBER
-        row_film = get_row_val(row, ['Film', 'FHL Film Number', 'Microfilm'], '') or FILM_NUMBER
-        row_ed = get_row_val(row, ['Enumeration District', 'Enumeration_District', 'ED'], '') or ENUMERATION_DISTRICT
+        row_roll = get_row_val(row, ['Roll', 'Roll Number', 'NARA Roll'], '') or cfg.roll_number
+        row_film = get_row_val(row, ['Film', 'FHL Film Number', 'Microfilm'], '') or cfg.film_number
+        row_ed = get_row_val(
+            row, ['Enumeration District', 'Enumeration_District', 'ED'], '') or cfg.enumeration_district
 
         page = get_row_val(row, ['Page', 'Page_Number', 'Page Number'], '')
         real_page = get_row_val(row, ['Real Page', 'Real_Page', 'Page', 'Page_Number'], '')
@@ -1578,12 +1618,12 @@ def build_gedcom_from_census(df_in: pd.DataFrame, target_software: str) -> None:
 
         if image_name not in media_dict:
             img_filename = f"{image_stem}.{image_suffix}" if image_suffix else f"{image_stem}.{IMAGE_EXTENSION}"
-            img_path = Path(str(IMAGE_DIR)) / img_filename
+            img_path = Path(str(cfg.image_dir)) / img_filename
             media_dict[image_name] = {'id': m_id, 'img': img_path, 'form': image_suffix or FORM_TYPE,
-                                      'title': f"{CENSUS_YEAR} Census, {row_county}, Image {image_name}"}
+                                      'title': f"{cfg.census_year} Census, {row_county}, Image {image_name}"}
 
         cit = build_census_citation(row, rec_id, m_id, real_page, target_software, row_town, row_county, row_state,
-                                    row_roll, row_film, row_ed)
+                                    row_roll, row_film, row_ed, cfg)
 
         alt_names = parse_alternate_entries(row, 'AlternateNames')
         row_fsftid = get_row_val(row, ['FSFTID'], '')
@@ -1606,7 +1646,7 @@ def build_gedcom_from_census(df_in: pd.DataFrame, target_software: str) -> None:
         ged.extend(
             [f"0 @I{rec_id}@ INDI", f"1 REFN {strip_ark_type_prefix(rec_id)}"]
             + ([f"1 _FSFTID {indi_fsftid}"] if indi_fsftid else [])
-            + ([f"1 _APID 1,{APID_DB}::{rec_id}"] if (APID_DB and rec_id) else [])
+            + ([f"1 _APID 1,{cfg.apid_db}::{rec_id}"] if (cfg.apid_db and rec_id) else [])
             + fs_tree_link
             + [f"1 NAME {giv} /{sur}/"] + cit +
             build_alternate_name_lines(alt_names, cit) +
@@ -1616,10 +1656,10 @@ def build_gedcom_from_census(df_in: pd.DataFrame, target_software: str) -> None:
 
         if (person_flags := review_flags.get(idx, [])) and target_software == "RM":
             fam_lbl_num = get_row_val(row, ['Family Number', 'Family', 'Household Number', 'Household'], '')
-            lbl = f"{CENSUS_YEAR}, Fam {fam_lbl_num}, p.{real_page}"
+            lbl = f"{cfg.census_year}, Fam {fam_lbl_num}, p.{real_page}"
             task_records, folder = build_census_task(rec_id, giv, sur, lbl, person_flags, cit,
                                                      media_dict[image_name]['img'],
-                                                     str(media_dict[image_name]['title']), target_software)
+                                                     str(media_dict[image_name]['title']), target_software, cfg)
             task_blocks.extend(task_records)
             folder_tasks.setdefault(folder, []).append(f"1 _TASK @T{rec_id}@")
             ged.extend([f"1 _TASK @T{rec_id}@", f"1 _COLOR {Utils.REVIEW_COLOR}"])
@@ -1634,7 +1674,7 @@ def build_gedcom_from_census(df_in: pd.DataFrame, target_software: str) -> None:
                 pass
         elif pd.notna(age):
             try:
-                birth_year = float(CENSUS_YEAR) - float(age)
+                birth_year = float(cfg.census_year) - float(age)
             except ValueError:
                 pass
 
@@ -1652,37 +1692,37 @@ def build_gedcom_from_census(df_in: pd.DataFrame, target_software: str) -> None:
         alt_birth_places = parse_alternate_entries(row, 'AlternateBirthPlaces')
         ged.extend(build_alternate_birth_lines(alt_birth_places, birth_year, row, cit))
 
-        occ, occ_notes = get_occupation_value(row)
+        occ, occ_notes = get_occupation_value(row, cfg)
         if occ:
-            occ_evt = [f"1 OCCU {occ}", f"2 DATE {CENSUS_YEAR}", f"2 PLAC {row_loc}"]
+            occ_evt = [f"1 OCCU {occ}", f"2 DATE {cfg.census_year}", f"2 PLAC {row_loc}"]
             if occ_notes:
                 occ_evt.append(f"2 NOTE {occ_notes}")
             occ_evt.extend(["2 _PROOF proven"] + cit)
             ged.extend(occ_evt)
 
-        if race := get_race_value(row):
-            ged.extend([f"1 FACT {race}", "2 TYPE Race", f"2 DATE {CENSUS_YEAR}", "2 _PROOF proposed"] + cit)
+        if race := get_race_value(row, cfg):
+            ged.extend([f"1 FACT {race}", "2 TYPE Race", f"2 DATE {cfg.census_year}", "2 _PROOF proposed"] + cit)
 
-        nat_val = get_nationality_value(row, birth_place)
+        nat_val = get_nationality_value(row, birth_place, cfg)
         if nat_val:
-            ged.extend([f"1 NATI {nat_val}", f"2 DATE {CENSUS_YEAR}", "2 _PROOF proven"] + cit)
+            ged.extend([f"1 NATI {nat_val}", f"2 DATE {cfg.census_year}", "2 _PROOF proven"] + cit)
 
-        edu_val = get_education_value(row)
+        edu_val = get_education_value(row, cfg)
 
         if edu_val is not None:
-            ged.extend(["1 EDUC" + (f" {edu_val}" if edu_val else ""), f"2 DATE {CENSUS_YEAR}", f"2 PLAC {row_loc}",
-                        "2 _PROOF proven"] + cit)
+            ged.extend(["1 EDUC" + (f" {edu_val}" if edu_val else ""), f"2 DATE {cfg.census_year}",
+                        f"2 PLAC {row_loc}", "2 _PROOF proven"] + cit)
 
-        dyn_events, dyn_notes = build_dynamic_events_and_notes(row, cit, giv, str_columns, row_loc, row_street)
+        dyn_events, dyn_notes = build_dynamic_events_and_notes(row, cit, giv, str_columns, row_loc, row_street, cfg)
         ged.extend(dyn_events)
 
-        cens_evt = ["1 CENS", f"2 DATE {CENSUS_YEAR}", f"2 PLAC {row_loc}"]
+        cens_evt = ["1 CENS", f"2 DATE {cfg.census_year}", f"2 PLAC {row_loc}"]
         if row_street:
             cens_evt.append(f"2 ADDR {row_street}")
         cens_evt.extend(["2 _PROOF proven"] + cit)
         ged.extend(cens_evt)
 
-        if notes := (get_census_notes(row) + dyn_notes):
+        if notes := (get_census_notes(row, cfg) + dyn_notes):
             ged.append(f"2 NOTE {' | '.join(notes)}")
         ged.extend(extra_birth_facts.get(idx, []))
         ged.extend(fam_links.get(idx, []))
@@ -1696,7 +1736,7 @@ def build_gedcom_from_census(df_in: pd.DataFrame, target_software: str) -> None:
         ged.append(f"0 _FOLDER {folder}")
         ged.extend(tasks)
 
-    ged.extend(get_census_sources(target_software))
+    ged.extend(get_census_sources(target_software, cfg))
     for m in media_dict.values():
         ged.extend([f"0 {m['id']} OBJE", f"1 FILE {m['img']}", f"2 FORM {m.get('form') or FORM_TYPE}",
                     f"1 TITL {m['title']}"])
@@ -1711,8 +1751,8 @@ def build_gedcom_from_census(df_in: pd.DataFrame, target_software: str) -> None:
         ged.extend(get_source_templates({10008}))
 
     ged.extend(["0 @SUB1@ SUBM", f"1 NAME {Utils.RESEARCHER}", f"1 ADDR {Utils.SUBM_ADDRESS}", f"1 NOTE {Utils.ORG_NAME}", "0 @R1@ REPO",  # noqa: E501
-                f"1 NAME {REPOSITORY}", f"1 ADDR {REPOSITORY_LOC}", f"1 CALN {CALL_NUMBER}", "2 MEDI Electronic",
-                f"2 _URL {COLLECTION_URL}", "0 TRLR"])
+                f"1 NAME {cfg.repository}", f"1 ADDR {cfg.repository_loc}", f"1 CALN {cfg.call_number}",
+                "2 MEDI Electronic", f"2 _URL {cfg.collection_url}", "0 TRLR"])
 
     output_path = Utils.resolve_gedcom_output_path(target_software)
     output_path.write_text("\n".join(ged), encoding="utf-8")
@@ -1978,9 +2018,7 @@ def build_census_dataframe_from_unified(data: dict) -> Tuple[pd.DataFrame, str, 
 
 
 def run_census_flavor(data: dict) -> None:
-    global STATE, COUNTY, TOWNSHIP, ENUMERATION_DISTRICT, ROLL_NUMBER, FILM_NUMBER, CENSUS_YEAR, CENSUS_ERA
-    global APID_DB, COLLECTION_NAME, COLLECTION_URL, PUBLISHER, PUB_LOC, CALL_NUMBER, REPOSITORY_LOC, REPOSITORY
-    global IMAGE_DIR, CENSUS_SOURCE_ID, COUNTRY, DEFAULT_COLLECTION_NAME
+    cfg = CensusRunConfig()
 
     if "pages" in data:
         census_df = load_census_dataframe(data)
@@ -1988,36 +2026,36 @@ def run_census_flavor(data: dict) -> None:
     else:
         census_df, payload_year, _ = build_census_dataframe_from_unified(data)
 
-    STATE = get_json_fallback(census_df, ['State', 'State/Province'], STATE)
-    COUNTY = get_json_fallback(census_df, ['County', 'Parish'], COUNTY)
-    TOWNSHIP = get_json_fallback(census_df, ['City', 'Township', 'Town', 'Civil Division', 'Ward'], TOWNSHIP)
-    ENUMERATION_DISTRICT = get_json_fallback(census_df, ['Enumeration District', 'Enumeration_District', 'ED'],
-                                             ENUMERATION_DISTRICT)
-    ROLL_NUMBER = get_json_fallback(census_df, ['Roll', 'Roll Number', 'NARA Roll'], ROLL_NUMBER)
-    FILM_NUMBER = get_json_fallback(census_df, ['Film', 'FHL Film Number', 'Microfilm'], FILM_NUMBER)
+    cfg.state = get_json_fallback(census_df, ['State', 'State/Province'], cfg.state)
+    cfg.county = get_json_fallback(census_df, ['County', 'Parish'], cfg.county)
+    cfg.township = get_json_fallback(census_df, ['City', 'Township', 'Town', 'Civil Division', 'Ward'], cfg.township)
+    cfg.enumeration_district = get_json_fallback(census_df, ['Enumeration District', 'Enumeration_District', 'ED'],
+                                                 cfg.enumeration_district)
+    cfg.roll_number = get_json_fallback(census_df, ['Roll', 'Roll Number', 'NARA Roll'], cfg.roll_number)
+    cfg.film_number = get_json_fallback(census_df, ['Film', 'FHL Film Number', 'Microfilm'], cfg.film_number)
 
-    census_year_str = get_json_fallback(census_df, ['Census Year', 'Year', 'Census_Year'], str(CENSUS_YEAR))
-    CENSUS_YEAR = int(census_year_str) if census_year_str and census_year_str.isdigit() else 0
-    if not CENSUS_YEAR:
-        CENSUS_YEAR = int(payload_year) if payload_year.isdigit() else 0
-    CENSUS_ERA = get_census_era(CENSUS_YEAR)
+    census_year_str = get_json_fallback(census_df, ['Census Year', 'Year', 'Census_Year'], str(cfg.census_year))
+    cfg.census_year = int(census_year_str) if census_year_str and census_year_str.isdigit() else 0
+    if not cfg.census_year:
+        cfg.census_year = int(payload_year) if payload_year.isdigit() else 0
+    cfg.census_era = get_census_era(cfg.census_year)
 
-    record_type_name = data.get("record_type_name") or f"Census_{CENSUS_YEAR}"
-    APID_DB = get_json_fallback(census_df, ['APID_DB', 'APID', 'Database ID', 'dbid'], APID_DB)
+    record_type_name = data.get("record_type_name") or f"Census_{cfg.census_year}"
+    cfg.apid_db = get_json_fallback(census_df, ['APID_DB', 'APID', 'Database ID', 'dbid'], cfg.apid_db)
 
     citation = data.get("citation") or {}
     cc = citation.get("collection_id")
-    apid = APID_DB or citation.get("apid_db")
+    apid = cfg.apid_db or citation.get("apid_db")
 
     cc_val = str(cc) if cc is not None else ""
     apid_val = str(apid) if apid is not None else ""
 
     if cc_val.strip():
-        CENSUS_SOURCE_ID = cc_val.strip()
+        cfg.census_source_id = cc_val.strip()
     elif apid_val.strip():
-        CENSUS_SOURCE_ID = apid_val.strip()
+        cfg.census_source_id = apid_val.strip()
     else:
-        CENSUS_SOURCE_ID = Utils.resolve_source_id(record_type_name, COLLECTION_NAME)
+        cfg.census_source_id = Utils.resolve_source_id(record_type_name, cfg.collection_name)
 
     # Country-aware, never hardcoded: read back whatever the gather itself recorded in
     # its own 'Country' column (Ancestry: Voyageur.js's ancestryCountryFromState();
@@ -2025,29 +2063,31 @@ def run_census_flavor(data: dict) -> None:
     # assuming USA. Confirmed live (2026-08-15, dbId 1578, Ontario) that the old
     # unconditional "United States Federal Census" text mislabeled every Canadian
     # gather's citation weblinks/source title/image-organizing fallback alike.
-    COUNTRY = get_json_fallback(census_df, ['Country'], COUNTRY)
+    cfg.country = get_json_fallback(census_df, ['Country'], cfg.country)
     # Generic "{country} Census" - not a fixed US-or-Canada choice, so any country this
     # project ever gathers plugs in the same way with no country list to maintain.
     # Defaults to "USA" only when country is absent/unrecognized (this project's
     # long-standing default). Matches Voyageur's own census_collection_folder_name()
     # convention (Voyageur/_gather_helpers.py) so citation text and image-folder naming
     # never diverge.
-    DEFAULT_COLLECTION_NAME = f'{CENSUS_YEAR} {COUNTRY or "USA"} Census' if CENSUS_YEAR else COLLECTION_NAME
-    COLLECTION_NAME = get_json_fallback(census_df, ['Collection Name', 'Collection_Name', 'Collection'],
-                                        COLLECTION_NAME) or DEFAULT_COLLECTION_NAME
-    COLLECTION_URL = get_json_fallback(census_df, ['Collection URL', 'Collection_URL', 'URL'], COLLECTION_URL) or (
-        f"https://www.ancestry.com/search/collections/{APID_DB}" if APID_DB else COLLECTION_URL)
-    PUBLISHER = get_json_fallback(census_df, ['Publisher', 'Census Publisher'], PUBLISHER)
-    PUB_LOC = get_json_fallback(census_df, ['Publisher Location', 'Pub Loc'], PUB_LOC)
-    REPOSITORY_LOC = get_json_fallback(census_df, ['Repository Location', 'Repo Loc'], REPOSITORY_LOC)
-    REPOSITORY = get_json_fallback(census_df, ['Repository', 'Source Repository'], REPOSITORY)
+    cfg.default_collection_name = f'{cfg.census_year} {cfg.country or "USA"} Census' if cfg.census_year \
+        else cfg.collection_name
+    cfg.collection_name = get_json_fallback(census_df, ['Collection Name', 'Collection_Name', 'Collection'],
+                                            cfg.collection_name) or cfg.default_collection_name
+    cfg.collection_url = get_json_fallback(
+        census_df, ['Collection URL', 'Collection_URL', 'URL'], cfg.collection_url) or (
+        f"https://www.ancestry.com/search/collections/{cfg.apid_db}" if cfg.apid_db else cfg.collection_url)
+    cfg.publisher = get_json_fallback(census_df, ['Publisher', 'Census Publisher'], cfg.publisher)
+    cfg.pub_loc = get_json_fallback(census_df, ['Publisher Location', 'Pub Loc'], cfg.pub_loc)
+    cfg.repository_loc = get_json_fallback(census_df, ['Repository Location', 'Repo Loc'], cfg.repository_loc)
+    cfg.repository = get_json_fallback(census_df, ['Repository', 'Source Repository'], cfg.repository)
 
     if 'FSFTID' in census_df.columns and (census_df['FSFTID'].astype(str).str.strip() != '').any():
-        REPOSITORY = PUBLISHER or REPOSITORY
-        REPOSITORY_LOC = PUB_LOC or REPOSITORY_LOC
+        cfg.repository = cfg.publisher or cfg.repository
+        cfg.repository_loc = cfg.pub_loc or cfg.repository_loc
 
-    CALL_NUMBER = CALL_NUMBER or (f"{FILM_NUMBER}, roll {ROLL_NUMBER}".strip(", ")
-                                  if (FILM_NUMBER or ROLL_NUMBER) else CALL_NUMBER)
+    cfg.call_number = cfg.call_number or (f"{cfg.film_number}, roll {cfg.roll_number}".strip(", ")
+                                          if (cfg.film_number or cfg.roll_number) else cfg.call_number)
 
     # Matches Voyageur's own resolve_census_image_dir() convention: <base>/<country>/
     # <year>/<state>/<county>/<city>/<ED>, no collection-name wrapper folder - see
@@ -2056,13 +2096,16 @@ def run_census_flavor(data: dict) -> None:
     # can span several EDs, so ED is the level that actually disambiguates one image set
     # from another within it. Always uses this computed path, never gated on nested_dir
     # already existing on disk - that gate meant a GEDCOM FILE reference silently fell back
-    # to the flat, un-nested IMAGE_DIR whenever this run's STATE/COUNTY/TOWNSHIP/ED (all now
+    # to the flat, un-nested image_dir whenever this run's state/county/township/ED (all now
     # mode-based, see get_json_fallback) didn't happen to match a folder some earlier/
     # different run already created, instead of pointing at the same path Voyageur's own
     # gather-time image routing (extract_census_image_routing_fields, also mode-based) uses.
-    if _IMAGE_DIR_BASE and CENSUS_YEAR:
-        location_parts = [p for p in (STATE, COUNTY, TOWNSHIP, ENUMERATION_DISTRICT) if p]
-        IMAGE_DIR = str(Path(_IMAGE_DIR_BASE).joinpath(COUNTRY or "USA", str(CENSUS_YEAR), *location_parts))
+    # Always nests from the pristine _IMAGE_DIR_BASE, never from cfg.image_dir itself, so a
+    # second in-process invocation can't fold the path in on itself (BUG-3).
+    if _IMAGE_DIR_BASE and cfg.census_year:
+        location_parts = [p for p in (cfg.state, cfg.county, cfg.township, cfg.enumeration_district) if p]
+        cfg.image_dir = str(Path(_IMAGE_DIR_BASE).joinpath(
+            cfg.country or "USA", str(cfg.census_year), *location_parts))
 
     for software in Utils.resolve_gedcom_output_targets():
-        build_gedcom_from_census(census_df, software)
+        build_gedcom_from_census(census_df, software, cfg)

@@ -444,7 +444,7 @@ def test_parse_household_forms_second_family_unit_for_unrelated_boarder_househol
         {"Given Name": "Lucretia", "Surname": "Depar", "Gender": "Female", "Age": "12"},
     ]
     group = pd.DataFrame(rows)
-    units, unrelated, flags = Census.parse_household(group)
+    units, unrelated, flags = Census.parse_household(group, Census.CensusRunConfig())
 
     assert len(unrelated) == 0
     assert len(units) == 2

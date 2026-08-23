@@ -118,13 +118,11 @@ def test_adapter_reads_street_and_it_drives_the_cens_addr_line(tmp_path, monkeyp
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
     assert df.iloc[0]["Street"] == "212 Main St"
 
-    monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
-    monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
+    cfg = arc.CensusRunConfig(census_year=int(year), census_era=get_census_era(int(year)), image_dir=str(tmp_path))
 
-    arc.build_gedcom_from_census(df, "RM")
+    arc.build_gedcom_from_census(df, "RM", cfg)
 
     lines = list(tmp_path.glob("*.ged"))[0].read_text(encoding="utf-8").splitlines()
     assert "2 ADDR 212 Main St" in lines
@@ -181,11 +179,11 @@ def test_relational_era_household_parsing_works_on_adapted_dataframe():
     ])])
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
-    arc.CENSUS_YEAR = int(year)
-    arc.CENSUS_ERA = get_census_era(arc.CENSUS_YEAR)
-    assert arc.CENSUS_ERA == "relationship"
+    cfg = arc.CensusRunConfig(census_year=int(year))
+    cfg.census_era = get_census_era(cfg.census_year)
+    assert cfg.census_era == "relationship"
 
-    units, unrelated, flags = arc.parse_household_relational(df)
+    units, unrelated, flags = arc.parse_household_relational(df, cfg)
     assert len(units) == 1
     assert units[0]["husband"]["Given Name"] == "Jean"
     assert units[0]["wife"]["Given Name"] == "Marie"
@@ -237,13 +235,13 @@ def test_sort_group_by_line_number_fixes_out_of_order_household_and_reattaches_c
         ], family_number="10"),
     ])])
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
-    arc.CENSUS_YEAR = int(year)
-    arc.CENSUS_ERA = get_census_era(arc.CENSUS_YEAR)
+    cfg = arc.CensusRunConfig(census_year=int(year))
+    cfg.census_era = get_census_era(cfg.census_year)
 
     sorted_df = arc.sort_group_by_line_number(df)
     assert list(sorted_df["Given Name"]) == ["Jess", "May", "Marlys", "Gerald", "Glenda", "Faye", "James"]
 
-    units, unrelated, flags = arc.parse_household_relational(sorted_df)
+    units, unrelated, flags = arc.parse_household_relational(sorted_df, cfg)
     assert len(units) == 1
     unrelated_names = [u.get('Given Name') for u in unrelated]
     assert len(unrelated) == 0, f"everyone should be attached to the household: {unrelated_names}"
@@ -265,11 +263,11 @@ def test_heuristic_era_household_parsing_works_on_adapted_dataframe():
     ])])
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
-    arc.CENSUS_YEAR = int(year)
-    arc.CENSUS_ERA = get_census_era(arc.CENSUS_YEAR)
-    assert arc.CENSUS_ERA == "heuristic"
+    cfg = arc.CensusRunConfig(census_year=int(year))
+    cfg.census_era = get_census_era(cfg.census_year)
+    assert cfg.census_era == "heuristic"
 
-    units, unrelated, flags = arc.parse_household(df)
+    units, unrelated, flags = arc.parse_household(df, cfg)
     assert len(units) == 1
     assert {units[0]["husband"]["Given Name"], units[0]["wife"]["Given Name"]} == {"Jean", "Marie"}
 
@@ -310,11 +308,11 @@ def test_institution_resident_gets_no_family_links_even_with_head_wife_roles():
     doc["sheets"][0]["records"][0]["participants"][1]["type_specific_fields"]["institution_1_type"] = "Hospital"
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
-    arc.CENSUS_YEAR = int(year)
-    arc.CENSUS_ERA = get_census_era(arc.CENSUS_YEAR)
-    assert arc.CENSUS_ERA == "relationship"
+    cfg = arc.CensusRunConfig(census_year=int(year))
+    cfg.census_era = get_census_era(cfg.census_year)
+    assert cfg.census_era == "relationship"
 
-    units, unrelated, flags = arc.parse_household_relational(df)
+    units, unrelated, flags = arc.parse_household_relational(df, cfg)
     assert units == []
     assert len(unrelated) == 2
 
@@ -344,14 +342,15 @@ def test_build_census_task_folder_name_uses_fixed_vocabulary_not_raw_flag_text()
     review-flag text, e.g. "Head-surname match: no age fit"). The folder name must instead
     come from evaluate_task_priority's fixed, safe vocabulary - already proven correct for
     the general flavor - reusing the exact flag text real 1860 census data produced."""
+    cfg = arc.CensusRunConfig()
     _, folder = arc.build_census_task("1", "Jean", "Gagnon", "1900, Fam 5, p.3",
                                       [("Head-surname match; no age fit", 0.3)],
-                                      [], "img.jpg", "Title", "RM")
+                                      [], "img.jpg", "Title", "RM", cfg)
     assert folder == "Name & Identity Issues"
 
     _, folder2 = arc.build_census_task("2", "Jean", "Gagnon", "1900, Fam 5, p.3",
                                        [("Unrelated household member", 0.5)],
-                                       [], "img.jpg", "Title", "RM")
+                                       [], "img.jpg", "Title", "RM", cfg)
     assert folder2 == "General Review"
 
 
@@ -377,8 +376,6 @@ def test_census_gedcom_output_has_no_illegal_name_under_sour_and_single_extensio
     }])
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
-    monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     # GEDCOM_OUTPUT_NAME is read from the environment at Utils import time, and this
     # dev machine's Archivist/.env sets it to an empty string - resolve_gedcom_output_path
@@ -386,9 +383,9 @@ def test_census_gedcom_output_has_no_illegal_name_under_sour_and_single_extensio
     # Pin a real name here so the output is a findable *.ged file (in production
     # Archivist.py fills an empty name from the input file's stem before this is called).
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
-    monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
+    cfg = arc.CensusRunConfig(census_year=int(year), census_era=get_census_era(int(year)), image_dir=str(tmp_path))
 
-    arc.build_gedcom_from_census(df, "RM")
+    arc.build_gedcom_from_census(df, "RM", cfg)
 
     out_files = list(tmp_path.glob("*.ged"))
     assert len(out_files) == 1
@@ -440,13 +437,11 @@ def test_census_gedcom_media_attaches_to_each_fact_citation_per_original_design(
     }])
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
-    monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
-    monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
+    cfg = arc.CensusRunConfig(census_year=int(year), census_era=get_census_era(int(year)), image_dir=str(tmp_path))
 
-    arc.build_gedcom_from_census(df, "RM")
+    arc.build_gedcom_from_census(df, "RM", cfg)
 
     lines = list(tmp_path.glob("*.ged"))[0].read_text(encoding="utf-8").splitlines()
 
@@ -483,13 +478,11 @@ def test_census_gedcom_refn_is_bare_ark_not_the_gedcomx_type_prefixed_form(tmp_p
     }])
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
-    monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
-    monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
+    cfg = arc.CensusRunConfig(census_year=int(year), census_era=get_census_era(int(year)), image_dir=str(tmp_path))
 
-    arc.build_gedcom_from_census(df, "RM")
+    arc.build_gedcom_from_census(df, "RM", cfg)
 
     lines = list(tmp_path.glob("*.ged"))[0].read_text(encoding="utf-8").splitlines()
 
@@ -514,13 +507,11 @@ def test_census_gedcom_fsftid_uses_persons_own_person_ark_when_present(tmp_path,
     }])
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
-    monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
-    monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
+    cfg = arc.CensusRunConfig(census_year=int(year), census_era=get_census_era(int(year)), image_dir=str(tmp_path))
 
-    arc.build_gedcom_from_census(df, "RM")
+    arc.build_gedcom_from_census(df, "RM", cfg)
 
     lines = list(tmp_path.glob("*.ged"))[0].read_text(encoding="utf-8").splitlines()
 
@@ -546,13 +537,11 @@ def test_census_gedcom_fsftid_omitted_when_no_true_person_ark_found(tmp_path, mo
     }])
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
-    monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
-    monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
+    cfg = arc.CensusRunConfig(census_year=int(year), census_era=get_census_era(int(year)), image_dir=str(tmp_path))
 
-    arc.build_gedcom_from_census(df, "RM")
+    arc.build_gedcom_from_census(df, "RM", cfg)
 
     lines = list(tmp_path.glob("*.ged"))[0].read_text(encoding="utf-8").splitlines()
 
@@ -574,14 +563,12 @@ def test_census_gedcom_apid_is_individual_level_not_nested_in_citation(tmp_path,
     }])
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
-    monkeypatch.setattr(arc, "APID_DB", "2442")
-    monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
-    monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
+    cfg = arc.CensusRunConfig(census_year=int(year), census_era=get_census_era(int(year)), image_dir=str(tmp_path),
+                              apid_db="2442")
 
-    arc.build_gedcom_from_census(df, "RM")
+    arc.build_gedcom_from_census(df, "RM", cfg)
 
     lines = list(tmp_path.glob("*.ged"))[0].read_text(encoding="utf-8").splitlines()
 
@@ -610,17 +597,15 @@ def test_census_citation_never_emits_apid_for_an_ark_shaped_rec_id(monkeypatch):
     ID namespace only obtained via genuine tree-attachment). This test's row has no
     FamilySearch_URL either (not FS-sourced at all), so the citation-level _FSFTID fallback
     (see the companion test below) correctly doesn't fire - _FSFTID must not appear."""
-    monkeypatch.setattr(arc, "APID_DB", "")
-    monkeypatch.setattr(arc, "CENSUS_YEAR", 1860)
-    monkeypatch.setattr(arc, "CENSUS_SOURCE_ID", "1473181")
-    monkeypatch.setattr(arc, "COLLECTION_NAME", "United States, Census, 1860")
+    cfg = arc.CensusRunConfig(apid_db="", census_year=1860, census_source_id="1473181",
+                              collection_name="United States, Census, 1860")
 
     row = _citation_row(FSFTID="")
 
     for target in ("RM", "FTM"):
         cit = arc.build_census_citation(row, "1:1:MF36-Z6D", "@Mimg1@", "3", target,
                                         "Pembina", "Dakota Territory", "Dakota Territory",
-                                        "T624_1", "")
+                                        "T624_1", "", "", cfg)
         assert not any("_APID" in ln for ln in cit), f"{target}: bogus _APID from an ark: {cit}"
         assert not any("_FSFTID" in ln for ln in cit), f"{target}: bogus _FSFTID from an ark: {cit}"
 
@@ -630,24 +615,22 @@ def test_census_citation_never_emits_fsftid_for_familysearch_sourced_rows(monkey
     which sources it from the row's own PersonArk column, not from build_census_citation) -
     it must never appear inside the per-fact citation itself, whether or not the row is
     FamilySearch-sourced."""
-    monkeypatch.setattr(arc, "APID_DB", "")
-    monkeypatch.setattr(arc, "CENSUS_YEAR", 1860)
-    monkeypatch.setattr(arc, "CENSUS_SOURCE_ID", "1473181")
-    monkeypatch.setattr(arc, "COLLECTION_NAME", "United States, Census, 1860")
+    cfg = arc.CensusRunConfig(apid_db="", census_year=1860, census_source_id="1473181",
+                              collection_name="United States, Census, 1860")
 
     fs_row = _citation_row(FSFTID="", **{"FamilySearch_URL": "https://www.familysearch.org/ark:/61903/1:1:MF36-Z6D"})
     for target in ("RM", "FTM"):
         cit = arc.build_census_citation(fs_row, "1:1:MF36-Z6D", "@Mimg1@", "3", target,
                                         "Pembina", "Dakota Territory", "Dakota Territory",
-                                        "T624_1", "")
+                                        "T624_1", "", "", cfg)
         assert not any("_FSFTID" in ln for ln in cit), f"{target}: _FSFTID leaked into citation: {cit}"
 
-    monkeypatch.setattr(arc, "APID_DB", "2442")
+    cfg.apid_db = "2442"
     anc_row = _citation_row(FSFTID="")
     for target in ("RM", "FTM"):
         cit = arc.build_census_citation(anc_row, "105307051", "@Mimg1@", "3", target,
                                         "Pembina", "Dakota Territory", "Dakota Territory",
-                                        "T624_1", "")
+                                        "T624_1", "", "", cfg)
         assert not any("_FSFTID" in ln for ln in cit), f"{target}: _FSFTID leaked into citation: {cit}"
 
 
@@ -664,28 +647,26 @@ def test_census_citation_household_id_field_is_bare_number_when_only_one_number_
     'HouseholdID: family 1', which reads as a stray descriptive word next to the field's
     own name) instead of the bare id value. The label word only earns its place when BOTH
     dwelling and family numbers exist and genuinely need to be told apart."""
-    monkeypatch.setattr(arc, "APID_DB", "")
-    monkeypatch.setattr(arc, "CENSUS_YEAR", 1860)
-    monkeypatch.setattr(arc, "CENSUS_SOURCE_ID", "1473181")
-    monkeypatch.setattr(arc, "COLLECTION_NAME", "United States, Census, 1860")
+    cfg = arc.CensusRunConfig(apid_db="", census_year=1860, census_source_id="1473181",
+                              collection_name="United States, Census, 1860")
 
     family_only = arc.build_census_citation(
         _citation_row(**{"Family Number": "1", "Dwelling Number": ""}), "MF36-Z6D", "@Mimg1@", "3", "RM",
-        "Pembina", "Dakota Territory", "Dakota Territory", "T624_1", "")
+        "Pembina", "Dakota Territory", "Dakota Territory", "T624_1", "", "", cfg)
     assert any(ln == "3 _TMPLT" for ln in family_only), family_only
     assert any(ln == "5 VALUE 1" for ln in family_only), family_only
     assert not any("family" in ln.lower() for ln in family_only), family_only
 
     dwelling_only = arc.build_census_citation(
         _citation_row(**{"Family Number": "", "Dwelling Number": "5"}), "MF36-Z6D", "@Mimg1@", "3", "RM",
-        "Pembina", "Dakota Territory", "Dakota Territory", "T624_1", "")
+        "Pembina", "Dakota Territory", "Dakota Territory", "T624_1", "", "", cfg)
     assert any(ln == "3 _TMPLT" for ln in dwelling_only), dwelling_only
     assert any(ln == "5 VALUE 5" for ln in dwelling_only), dwelling_only
     assert not any("dwelling" in ln.lower() for ln in dwelling_only), dwelling_only
 
     both = arc.build_census_citation(
         _citation_row(**{"Family Number": "1", "Dwelling Number": "5"}), "MF36-Z6D", "@Mimg1@", "3", "RM",
-        "Pembina", "Dakota Territory", "Dakota Territory", "T624_1", "")
+        "Pembina", "Dakota Territory", "Dakota Territory", "T624_1", "", "", cfg)
     assert any(ln == "3 _TMPLT" for ln in both), both
     assert any(ln == "5 VALUE dwelling 5, family 1" for ln in both), both
 
@@ -695,17 +676,15 @@ def test_census_citation_never_emits_apid_for_real_ancestry_data(monkeypatch):
     build_gedcom_from_census's indi-level '1 _APID ...' line), not a citation-level one, so
     even a genuine Ancestry-sourced record (real APID_DB, numeric rec_id) must never carry
     it inside build_census_citation()'s own output."""
-    monkeypatch.setattr(arc, "APID_DB", "2442")
-    monkeypatch.setattr(arc, "CENSUS_YEAR", 1860)
-    monkeypatch.setattr(arc, "CENSUS_SOURCE_ID", "1001")
-    monkeypatch.setattr(arc, "COLLECTION_NAME", "1860 United States Federal Census")
+    cfg = arc.CensusRunConfig(apid_db="2442", census_year=1860, census_source_id="1001",
+                              collection_name="1860 United States Federal Census")
 
     row = _citation_row()
 
     for target in ("RM", "FTM"):
         cit = arc.build_census_citation(row, "105307051", "@Mimg1@", "3", target,
                                         "Pembina", "Dakota Territory", "Dakota Territory",
-                                        "T624_1", "")
+                                        "T624_1", "", "", cfg)
         assert not any("_APID" in ln for ln in cit), f"{target}: _APID leaked into citation: {cit}"
 
 
@@ -721,7 +700,7 @@ def test_dynamic_occupation_template_normalizes_raw_case():
         "Employer": "SMITH FARM",
         "Industry": "agriculture",
     })
-    occ, _ = get_occupation_value(row)
+    occ, _ = get_occupation_value(row, arc.CensusRunConfig())
     assert occ == "Farmer at Smith Farm, working in Agriculture"
 
 
@@ -738,7 +717,8 @@ def test_dynamic_notes_exclude_citation_plumbing_columns():
         "Lived on Farm": "yes",
     })
     columns = list(row.index)
-    _, notes = arc.build_dynamic_events_and_notes(row, [], "Jess", columns, "North Dakota, USA", "")
+    _, notes = arc.build_dynamic_events_and_notes(row, [], "Jess", columns, "North Dakota, USA", "",
+                                                  arc.CensusRunConfig())
     joined = " | ".join(notes)
     assert "Collection Name" not in joined
     assert "Collection URL" not in joined
@@ -750,6 +730,8 @@ def test_dynamic_notes_exclude_citation_plumbing_columns():
 def test_dynamic_occupation_template():
     from Census import get_occupation_value
 
+    cfg = arc.CensusRunConfig()
+
     # Test Employed
     row1 = pd.Series({
         "Occupation": "Farmer",
@@ -758,7 +740,7 @@ def test_dynamic_occupation_template():
         "Class of Worker": "W",
         "Hours Worked": "40"
     })
-    occ1, notes1 = get_occupation_value(row1)
+    occ1, notes1 = get_occupation_value(row1, cfg)
     assert occ1 == "Farmer at Smith Farm, working in Agriculture"
     assert "Class of Worker: W" in notes1
     assert "Hours Worked: 40" in notes1
@@ -769,7 +751,7 @@ def test_dynamic_occupation_template():
         "Employer": "Bank",
         "Out Of Work": "Yes"
     })
-    occ2, notes2 = get_occupation_value(row2)
+    occ2, notes2 = get_occupation_value(row2, cfg)
     assert occ2 == "Unemployed from Clerk at Bank"
 
     # Test Usual Occupation priority
@@ -777,7 +759,7 @@ def test_dynamic_occupation_template():
         "Occupation": "Laborer",
         "Usual Occupation": "Carpenter"
     })
-    occ3, notes3 = get_occupation_value(row3)
+    occ3, notes3 = get_occupation_value(row3, cfg)
     assert occ3 == "Carpenter"
 
 
@@ -812,13 +794,11 @@ def test_foreign_birthplace_as_nationality(tmp_path, monkeypatch):
     })
     df = pd.DataFrame([row_foreign, row_us, row_explicit_nat])
 
-    monkeypatch.setattr(arc, "CENSUS_YEAR", 1900)
-    monkeypatch.setattr(arc, "CENSUS_ERA", "relationship")
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
-    monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
+    cfg = arc.CensusRunConfig(census_year=1900, census_era="relationship", image_dir=str(tmp_path))
 
-    arc.build_gedcom_from_census(df, "RM")
+    arc.build_gedcom_from_census(df, "RM", cfg)
 
     lines = list(tmp_path.glob("*.ged"))[0].read_text(encoding="utf-8").splitlines()
 
@@ -878,13 +858,11 @@ def test_parent_birthplace_appends_second_birt_fact_to_existing_father(tmp_path,
     ])])
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
-    monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
-    monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
+    cfg = arc.CensusRunConfig(census_year=int(year), census_era=get_census_era(int(year)), image_dir=str(tmp_path))
 
-    arc.build_gedcom_from_census(df, "RM")
+    arc.build_gedcom_from_census(df, "RM", cfg)
     lines = list(tmp_path.glob("*.ged"))[0].read_text(encoding="utf-8").splitlines()
 
     head_start = lines.index("1 NAME Jean /Gagnon/")
@@ -915,13 +893,11 @@ def test_parent_birthplace_synthesizes_stub_parents_when_foreign_and_none_extrac
     ])])
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
-    monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
-    monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
+    cfg = arc.CensusRunConfig(census_year=int(year), census_era=get_census_era(int(year)), image_dir=str(tmp_path))
 
-    arc.build_gedcom_from_census(df, "RM")
+    arc.build_gedcom_from_census(df, "RM", cfg)
     lines = list(tmp_path.glob("*.ged"))[0].read_text(encoding="utf-8").splitlines()
 
     assert lines.count("1 NAME /Gagnon/") == 2, f"expected one synthetic father + mother: {lines}"
@@ -954,13 +930,11 @@ def test_parent_birthplace_does_not_synthesize_a_person_for_domestic_birthplace(
     ])])
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
-    monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
-    monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
+    cfg = arc.CensusRunConfig(census_year=int(year), census_era=get_census_era(int(year)), image_dir=str(tmp_path))
 
-    arc.build_gedcom_from_census(df, "RM")
+    arc.build_gedcom_from_census(df, "RM", cfg)
     lines = list(tmp_path.glob("*.ged"))[0].read_text(encoding="utf-8").splitlines()
 
     assert "1 NAME /Gagnon/" not in lines
@@ -976,7 +950,7 @@ def test_weeks_out_of_work_marks_unemployed_and_notes_the_weeks():
     from Census import get_occupation_value
 
     row = pd.Series({"Occupation": "Clerk", "Weeks Out of Work": "12"})
-    occ, notes = get_occupation_value(row)
+    occ, notes = get_occupation_value(row, arc.CensusRunConfig())
     assert occ == "Unemployed from Clerk"
     assert "Weeks Out of Work: 12" in notes
 
@@ -987,11 +961,12 @@ def test_location_string_falls_back_to_residence_place_only_when_census_place_bl
     entirely blank - never its own separate fact, and never preferred over a real value."""
     from Census import get_location_string
 
+    cfg = arc.CensusRunConfig()
     blank_row = pd.Series({"Residence Place Fallback": "Some Town, Some State"})
-    assert get_location_string(blank_row) == "Some Town, Some State"
+    assert get_location_string(blank_row, cfg) == "Some Town, Some State"
 
     populated_row = pd.Series({"State": "Minnesota", "Residence Place Fallback": "Should Not Win"})
-    assert get_location_string(populated_row) == "Minnesota, USA"
+    assert get_location_string(populated_row, cfg) == "Minnesota, USA"
 
 
 def test_build_census_dataframe_from_unified_surfaces_unmapped_codes():
@@ -1043,77 +1018,77 @@ def test_build_census_dataframe_from_unified_omits_code_columns_when_absent():
 def test_get_occupation_value_prefers_decoded_code_over_existing_text():
     """Code-first, not code-fallback: even when real occupation text is ALSO
     present, the decoded code wins."""
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Occupation Code': '100', 'Occupation': 'Some Other Job'})
-    occ, _ = arc.get_occupation_value(row)
+    occ, _ = arc.get_occupation_value(row, cfg)
     assert occ == "Farmers (owners and tenants)"
 
 
 def test_get_occupation_value_falls_back_to_text_when_code_unknown():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Occupation Code': '999999', 'Occupation': 'Blacksmith'})
-    occ, _ = arc.get_occupation_value(row)
+    occ, _ = arc.get_occupation_value(row, cfg)
     assert occ == "Blacksmith"
 
 
 def test_get_occupation_value_falls_back_to_text_when_no_code():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Occupation': 'Blacksmith'})
-    occ, _ = arc.get_occupation_value(row)
+    occ, _ = arc.get_occupation_value(row, cfg)
     assert occ == "Blacksmith"
 
 
 def test_get_occupation_value_drops_occupation_category_entirely():
     """Occupation Category (h/wk/ot/u) is a different, undecodable scheme - it must
     never appear as the occupation value, even as a last resort."""
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Occupation Category': 'wk'})
-    occ, _ = arc.get_occupation_value(row)
+    occ, _ = arc.get_occupation_value(row, cfg)
     assert occ == ""
 
 
 def test_get_occupation_value_decodes_industry_code_first():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Occupation Code': '100', 'Industry Code': '105'})
-    occ, _ = arc.get_occupation_value(row)
+    occ, _ = arc.get_occupation_value(row, cfg)
     assert "working in Agriculture" in occ
 
 
 def test_get_occupation_value_decodes_class_of_worker_code_in_notes():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Occupation Code': '100', 'Class of Worker Code': '3'})
-    _, notes = arc.get_occupation_value(row)
+    _, notes = arc.get_occupation_value(row, cfg)
     assert "Class of Worker: In own business" in notes
 
 
 def test_get_education_value_decodes_grade_code():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Highest Grade Completed': 'S8'})
-    assert arc.get_education_value(row) == "8th grade"
+    assert arc.get_education_value(row, cfg) == "8th grade"
 
 
 def test_get_education_value_normalizes_letter_o_to_zero_before_decode():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Highest Grade Completed': 'O'})
-    assert arc.get_education_value(row) == "No schooling"
+    assert arc.get_education_value(row, cfg) == "No schooling"
 
 
 def test_get_education_value_falls_back_to_raw_code_when_undecodable():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Highest Grade Completed': 'ZZ'})
-    assert arc.get_education_value(row) == "ZZ"
+    assert arc.get_education_value(row, cfg) == "ZZ"
 
 
 def test_get_education_value_still_returns_none_when_nothing_present():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({})
-    assert arc.get_education_value(row) is None
+    assert arc.get_education_value(row, cfg) is None
 
 
 def test_get_education_value_still_returns_empty_string_for_attended_only():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Attended School': 'Yes'})
-    assert arc.get_education_value(row) == ''
+    assert arc.get_education_value(row, cfg) == ''
 
 
 def test_get_education_value_falls_back_to_alt_column_in_heterogeneous_dataframe():
@@ -1121,74 +1096,74 @@ def test_get_education_value_falls_back_to_alt_column_in_heterogeneous_dataframe
     missing 'Highest Grade of School Completed' cell is NaN (not an absent key),
     so the alt-column fallback must still fire via get_row_val rather than being
     masked by row.get's default arg."""
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     df = pd.DataFrame([
         {'Highest Grade of School Completed': 'S8', 'Highest Grade Completed': None},
         {'Highest Grade of School Completed': None, 'Highest Grade Completed': 'S4'},
     ])
-    assert arc.get_education_value(df.iloc[1]) == "4th grade"
+    assert arc.get_education_value(df.iloc[1], cfg) == "4th grade"
 
 
 def test_get_race_value_decodes_abbreviation():
-    arc.CENSUS_YEAR = 1950
-    assert arc.get_race_value(pd.Series({'Race': 'W'})) == "White"
+    cfg = arc.CensusRunConfig(census_year=1950)
+    assert arc.get_race_value(pd.Series({'Race': 'W'}), cfg) == "White"
 
 
 def test_get_race_value_passes_through_already_spelled_out_value():
-    arc.CENSUS_YEAR = 1950
-    assert arc.get_race_value(pd.Series({'Race': 'White'})) == "White"
+    cfg = arc.CensusRunConfig(census_year=1950)
+    assert arc.get_race_value(pd.Series({'Race': 'White'}), cfg) == "White"
 
 
 def test_get_race_value_falls_back_to_color_column():
-    arc.CENSUS_YEAR = 1950
-    assert arc.get_race_value(pd.Series({'Color': 'W'})) == "White"
+    cfg = arc.CensusRunConfig(census_year=1950)
+    assert arc.get_race_value(pd.Series({'Color': 'W'}), cfg) == "White"
 
 
 def test_get_race_value_empty_when_nothing_present():
-    arc.CENSUS_YEAR = 1950
-    assert arc.get_race_value(pd.Series({})) == ""
+    cfg = arc.CensusRunConfig(census_year=1950)
+    assert arc.get_race_value(pd.Series({}), cfg) == ""
 
 
 def test_get_race_value_falls_back_to_color_column_in_heterogeneous_dataframe():
     """On a real multi-row DataFrame built from rows with different keys, a
     missing 'Race' cell is NaN (not an absent key), so the Color fallback must
     still fire via get_row_val rather than being masked by row.get's default arg."""
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     df = pd.DataFrame([{'Race': 'W', 'Color': None}, {'Race': None, 'Color': 'N'}])
-    assert arc.get_race_value(df.iloc[1]) == "Negro"
+    assert arc.get_race_value(df.iloc[1], cfg) == "Negro"
 
 
 def test_get_nationality_value_uses_decoded_foreign_code():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Birthplace Code': 'V39', 'Birth Place': 'Ireland'})
-    assert arc.get_nationality_value(row, birth_place='Ireland') == "Iceland"
+    assert arc.get_nationality_value(row, birth_place='Ireland', cfg=cfg) == "Iceland"
 
 
 def test_get_nationality_value_suppresses_for_resolved_us_code():
     """A resolved US code must win over stale Nationality text or a
     foreign-looking birth_place string - the code can rule a value out, not just
     supply one."""
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Birthplace Code': '091', 'Nationality': 'Norwegian'})
-    assert arc.get_nationality_value(row, birth_place='Norway') == ""
+    assert arc.get_nationality_value(row, birth_place='Norway', cfg=cfg) == ""
 
 
 def test_get_nationality_value_falls_back_to_text_when_code_unresolved():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Birthplace Code': '999999'})
-    assert arc.get_nationality_value(row, birth_place='Norway') == "Norway"
+    assert arc.get_nationality_value(row, birth_place='Norway', cfg=cfg) == "Norway"
 
 
 def test_get_nationality_value_falls_back_to_text_when_no_code():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({})
-    assert arc.get_nationality_value(row, birth_place='Norway') == "Norway"
+    assert arc.get_nationality_value(row, birth_place='Norway', cfg=cfg) == "Norway"
 
 
 def test_get_nationality_value_empty_for_us_birthplace_text_no_code():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({})
-    assert arc.get_nationality_value(row, birth_place='Ohio') == ""
+    assert arc.get_nationality_value(row, birth_place='Ohio', cfg=cfg) == ""
 
 
 def test_get_nationality_value_handles_nan_code_from_heterogeneous_dataframe():
@@ -1196,27 +1171,27 @@ def test_get_nationality_value_handles_nan_code_from_heterogeneous_dataframe():
     pandas fills the missing cells with NaN rather than omitting the key.
     NaN is truthy, so get_nationality_value must clean_val it before the
     truthiness check or it will crash trying to len() a float."""
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     df = pd.DataFrame([
         {'Birthplace Code': 'V39', 'Nationality': None},
         {'Birthplace Code': None, 'Nationality': 'Norway'},
     ])
     row_with_code = df.iloc[0]
     row_without_code = df.iloc[1]
-    assert arc.get_nationality_value(row_with_code, birth_place='Ireland') == "Iceland"
-    assert arc.get_nationality_value(row_without_code, birth_place='Ohio') == "Norway"
+    assert arc.get_nationality_value(row_with_code, birth_place='Ireland', cfg=cfg) == "Iceland"
+    assert arc.get_nationality_value(row_without_code, birth_place='Ohio', cfg=cfg) == "Norway"
 
 
 def test_get_nationality_value_suppresses_us_state_text_in_nationality_field():
     """Regression: some sheets have a US state abbreviation typed into the Nationality
     column itself (e.g. 'N Dak'), not just the birthplace column - that text must not
     be emitted verbatim as a foreign nationality."""
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Nationality': 'N Dak'})
-    assert arc.get_nationality_value(row, birth_place='') == ""
+    assert arc.get_nationality_value(row, birth_place='', cfg=cfg) == ""
 
 
 def test_get_nationality_value_keeps_foreign_text_alongside_new_abbreviations():
-    arc.CENSUS_YEAR = 1950
+    cfg = arc.CensusRunConfig(census_year=1950)
     row = pd.Series({'Nationality': 'Norwegian'})
-    assert arc.get_nationality_value(row, birth_place='') == "Norwegian"
+    assert arc.get_nationality_value(row, birth_place='', cfg=cfg) == "Norwegian"
