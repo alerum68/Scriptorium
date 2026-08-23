@@ -15,6 +15,7 @@
 | 11. ROB-10: User-Agent headers | Done | Restore valid Chrome UA instead of IP placeholder. |
 | 12. ROB-11: Dead annotations/code | Done | Remove dead session/aliases, fix annotations. |
 | 13. PERF-1: stdout read chunking | Done | Read subprocess stdout in 256-byte chunks instead of 1. |
+| 14. BUG-3: `Census.IMAGE_DIR` double-nesting | Done | Was in the original audit's Phase 1 scope but dropped when Phase 1 landed (not in this table until now). `run_census_flavor` re-nested `IMAGE_DIR` from its own current value each call, folding the path in on itself on a second in-process invocation. Fixed: nest from a pristine `_IMAGE_DIR_BASE` captured at import time, never from the mutated global. |
 
 # Ox Alpha Audit: Phase 2 (Safety Net)
 
@@ -39,3 +40,35 @@ ormalize_sex_code into Commissioner/normalization.py. |
 | DUP-6: get_census_era | Done | Extracted standalone get_census_era into Commissioner/census_consts.py. |
 | DUP-7 to DUP-12: Core Deduplication | Done | Centralized safe_path, .env loading, .pmt parsing, prompt directory tiers, load_event_types, and atomic JSON io. |
 | DUP-13 to DUP-18: IO and String Utils | Done | Centralized generic setting resolution, RMNOCASE collation, Windows file-lock retry IO, and name/filename sanitization. |
+
+# Ox Alpha Audit: Phase 4 (Architecture)
+
+| Task | Status | Description |
+| --- | --- | --- |
+| 1. ARCH-1 (revised scope) | Pending | Self-relaunch router is correct as-is (do NOT reintroduce a `tool_runner.py` spawned by path - that broke frozen builds in Phase 1 batch 3 and was reverted). `build.py`'s hidden-import list exhaustiveness was already verified post-Phase-1 (commit `9adaab3`). Remaining: optional argv-surgery cleanup in per-tool dispatchers (cosmetic only). |
+| 2. ARCH-2: Declarative `execute_script` args | Pending | Replace the `if script_key == ... elif mode == ...` CLI-assembly chain with an `ARG_SPECS` table: `(script_key, mode) -> callable(string_vars, debug_file_var) -> list[str]`. |
+| 3. ARCH-4: Curated per-tool env | Pending | `execute_script` dumps every GUI StringVar into every child process env. Derive each script's env from `ENV_TARGETS` schema ownership instead. |
+| 4. ARCH-5: Complete FactTypes migration | Pending | Make `Commissioner/models.py::FACT_DEFINITIONS` the sole source of truth; `Utils.FACT_TYPES` and `load_event_types` (currently duplicated in `engine.py`/`FS.py`) derive from it. Keep `FactTypes.json` only as a generated export if needed. |
+| 5. ARCH-6: `record_registry` frozen-build path resolution | Pending | `PMT_DIR` is hardcoded via `__file__`; frozen, prompts land somewhere `build.py` never copies them to. Give `record_registry` the same tiered search `engine._prompt_search_dirs` already implements. |
+| 6. ARCH-7: Lazy `Commissioner` registry build | Pending | Importing `Commissioner` eagerly parses every `.pmt` file at import time, so one bad file crashes unrelated tools. Make the registry build lazy via a `functools.lru_cache`d getter. |
+
+# Ox Alpha Audit: Phase 5 (De-globalization)
+
+| Task | Status | Description |
+| --- | --- | --- |
+| 1. ARCH-3: Eliminate global mutable state in Archivist pipeline | Pending | `Census.run_census_flavor` mutates ~25 module globals; `General` mutates `GENERAL_CONFIG`/`REPOSITORY`/`_ACTIVE_PROFILE`. Introduce a `RunConfig` dataclass populated once per `run_*_flavor(data, cfg)` entrypoint and threaded explicitly. TEST-1 golden tests (Phase 2, done) are the safety net that makes this provable. Split `build_gedcom_from_census`/`build_individual` into smaller testable functions afterward. |
+
+# Ox Alpha Audit: Phase 6 (Performance & Polish)
+
+| Task | Status | Description |
+| --- | --- | --- |
+| 1. PERF-2: `LAC.download_images` batch flush | Pending | Saves the entire master DB after every canvas (720x for a 720-page reel). Flush every N canvases, mirroring `download_volume_assets_multiworker`. |
+| 2. PERF-3: `Extract.save_master_db` flush cadence | Pending | Fine at small scale; adopt flush-every-N if batch sizes grow. Atomicity already covered by the BUG-7 fix. |
+| 3. PERF-4: `Registrar` Pass 2 O(N×M) comparison | Pending | Prefilter candidates by shared surname-initial/token before fuzz scoring. |
+| 4. PERF-5: `Voyageur.js` DOM observer scope | Pending | Opportunistic: scope `MutationObserver` targets where the waited-for element has a stable container. |
+| 5. HYG-1: Machine-specific paths in `.mcp.json`/`opencode.json` | Pending | Move to untracked local files or committed `*.template.json`; never ship usernames in the repo. |
+| 6. HYG-2: Extract icon/help-text blobs from `Antiquarian.py` | Pending | Move base64 icon blobs and `help_texts` dict to `assets/app_icons.py` / `help_content.py`. |
+| 7. HYG-3: Dead code sweep | Pending | ROB-11 items, `Voyageur.js`'s unused `lastPageSignature`, decide on `Antiquarian.switch_tab` alias. |
+| 8. HYG-4: Rename `AntiquarianMCP/` | Pending | Optional: rename to `AgyCli/` (internal-only breakage). |
+| 9. HYG-5: Pin dependencies | Pending | Add a lockfile; declare `playwright`/`websocket-client` as optional extras. |
+| 10. HYG-6: Write `ARCHITECTURE.md` | Pending | Document `.env` tiering/precedence, `PROGRAM_DIR`/`APP_DIR` frozen distinction, prompt search tiers, the runpy self-relaunch contract, and the Voyageur-gathers/Archivist-decodes division of labor — currently only in scattered comments. |
