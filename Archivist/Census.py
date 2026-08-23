@@ -48,6 +48,10 @@ PUBLISHER = ""
 PUB_LOC = ""
 
 IMAGE_DIR = Utils.safe_path(Utils.GENEALOGY_DIR, os.getenv("MEDIA_DIR", "Media"), "Census")
+# Pristine, un-nested base for IMAGE_DIR - run_census_flavor() always nests from this,
+# never from the current (possibly already-nested) IMAGE_DIR, so a second invocation in
+# the same process can't double-nest the path (BUG-3).
+_IMAGE_DIR_BASE = IMAGE_DIR
 IMAGE_EXTENSION = "jpg"
 FORM_TYPE = IMAGE_EXTENSION
 
@@ -2056,9 +2060,9 @@ def run_census_flavor(data: dict) -> None:
     # mode-based, see get_json_fallback) didn't happen to match a folder some earlier/
     # different run already created, instead of pointing at the same path Voyageur's own
     # gather-time image routing (extract_census_image_routing_fields, also mode-based) uses.
-    if IMAGE_DIR and CENSUS_YEAR:
+    if _IMAGE_DIR_BASE and CENSUS_YEAR:
         location_parts = [p for p in (STATE, COUNTY, TOWNSHIP, ENUMERATION_DISTRICT) if p]
-        IMAGE_DIR = str(Path(IMAGE_DIR).joinpath(COUNTRY or "USA", str(CENSUS_YEAR), *location_parts))
+        IMAGE_DIR = str(Path(_IMAGE_DIR_BASE).joinpath(COUNTRY or "USA", str(CENSUS_YEAR), *location_parts))
 
     for software in Utils.resolve_gedcom_output_targets():
         build_gedcom_from_census(census_df, software)
