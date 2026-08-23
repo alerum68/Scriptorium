@@ -20,9 +20,9 @@
 
 | Task | Status | Description |
 | --- | --- | --- |
-| 1. TEST-1: Golden GEDCOM regression harness | Done (unpopulated) | `tests/test_gedcom_golden.py` resets Archivist's mutable module globals between cases and masks only volatile lines (run date/time, copyright year, file paths). No fixtures committed yet (`tests/fixtures/archivist/` is empty) — zero actual GEDCOM regression coverage until fixtures are added. |
+| 1. TEST-1: Golden GEDCOM regression harness | Done | `tests/test_gedcom_golden.py` resets Archivist's mutable module globals between cases and masks only volatile lines (run date/time, copyright year, file paths). The `legacy_1950` JSON fixture and its baseline `.ged` have been committed. |
 | 2. TEST-3: Router smoke test | Done | `tests/test_router_smoke.py`, AST-based (no `import Antiquarian.py`/`Voyageur.py`, avoids GUI deps). Guards the ARCH-1 revert (`runpy.run_module` + `--module`). |
-| 3. TEST-6: FactTypes/schema.json CI parity checks | Done | `tests/test_ci_parity.py` — `FactTypes.json` &harr; `models.FACT_DEFINITIONS` and `schema.json` &harr; `models` drift checks. JS harness (`Voyageur/tests/js/`) predates this phase and is still not wired into CI. |
+| 3. TEST-6: FactTypes/schema.json CI parity checks | Done | `tests/test_ci_parity.py` — `FactTypes.json` &harr; `models.FACT_DEFINITIONS` and `schema.json` &harr; `models` drift checks. The JS harness (`Voyageur/tests/js/`) has now been wired into `.github/workflows/test.yml` as well. |
 | 4. Hiddenimports coverage test | Done | `tests/test_hiddenimports_coverage.py`, pulled forward per the Phase 1 addendum. |
 | 5. CI wiring: run the test suite on push/PR | Done | Added `.github/workflows/test.yml` (windows-latest, mirrors `build.yml`'s proven dependency install). Previously no workflow ran `pytest` at all — `lint.yml` only runs bare `pycodestyle`, not this repo's own flake8 gate. |
 | 6. Fix dead `review_reason` assertions in `test_crosscheck.py` | Done | Leftover from Phase 1's BUG-1 fix (list &rarr; string); two tests still asserted `any(... for r in result["review_reason"])`, which iterates characters of a string and can never pass. |
