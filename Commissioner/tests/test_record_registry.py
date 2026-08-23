@@ -638,3 +638,21 @@ def test_get_field_remap_scrip():
 def test_get_field_remap_unknown_document_type_raises():
     with pytest.raises(UnknownDocumentTypeError, match="NotARecordType"):
         record_registry.get_field_remap("NotARecordType")
+
+
+def test_resolve_generic_setting_prefers_prefixed(monkeypatch):
+    monkeypatch.setenv("CHURCH_MASTER_DB_NAME", "parish_register.json")
+    monkeypatch.delenv("MASTER_DB_NAME", raising=False)
+    assert record_registry.resolve_generic_setting("Parish", "MASTER_DB_NAME") == "parish_register.json"
+
+
+def test_resolve_generic_setting_falls_back_to_generic(monkeypatch):
+    monkeypatch.delenv("CHURCH_MASTER_DB_NAME", raising=False)
+    monkeypatch.setenv("MASTER_DB_NAME", "fallback.json")
+    assert record_registry.resolve_generic_setting("Parish", "MASTER_DB_NAME") == "fallback.json"
+
+
+def test_resolve_generic_setting_falls_back_to_default(monkeypatch):
+    monkeypatch.delenv("CHURCH_MASTER_DB_NAME", raising=False)
+    monkeypatch.delenv("MASTER_DB_NAME", raising=False)
+    assert record_registry.resolve_generic_setting("Parish", "MASTER_DB_NAME", "default.json") == "default.json"

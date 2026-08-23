@@ -30,6 +30,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from Commissioner.envkit import load_tool_env  # noqa: E402
+from Commissioner.sqlite_helpers import register_rmnocase  # noqa: E402
 
 # Global settings come from the project root's .env; this tool's own settings come from
 # its own subfolder's .env, so Gazetteer stays runnable standalone. Tool .env overrides
@@ -459,14 +460,7 @@ def main() -> None:
 
     print(f"Connecting to Database: {RM_DATABASE}")
     conn = sqlite3.connect(RM_DATABASE)
-
-    def rmnocase_collation(a_str: str, b_str: str) -> int:
-        a_str, b_str = a_str.lower(), b_str.lower()
-        if a_str == b_str:
-            return 0
-        return -1 if a_str < b_str else 1
-
-    conn.create_collation("RMNOCASE", rmnocase_collation)
+    register_rmnocase(conn)
     cursor = conn.cursor()
 
     cursor.execute("PRAGMA table_info(PlaceTable)")

@@ -89,32 +89,6 @@ def test_build_universal_json_empty_item_id_yields_empty_file_name():
     assert result["sheets"][0]["document_metadata"]["file_name"] == ""
 
 
-def test_validate_against_commissioner_accepts_valid_church_sheet(capsys):
-    final_data = {
-        "collection_title": "Test Parish",
-        "sheets": [{
-            "page_id": "abc123.jpg",
-            "document_metadata": {"file_name": "abc123.jpg", "file_type": "jpg"},
-            "records": [],
-        }],
-    }
-    FS.validate_against_commissioner(final_data, "church", "Test Parish")
-    assert "[WARN]" not in capsys.readouterr().out
-
-
-def test_validate_against_commissioner_skipped_for_unmapped_family(capsys):
-    FS.validate_against_commissioner({"sheets": []}, "wills", "Test")
-    assert capsys.readouterr().out == ""
-
-
-def test_validate_against_commissioner_warns_and_does_not_raise_on_bad_shape(capsys):
-    bad_data = {"collection_title": "Bad", "sheets": [{"records": "not-a-list"}]}
-    FS.validate_against_commissioner(bad_data, "church", "Bad Collection")
-    captured = capsys.readouterr()
-    assert "[WARN]" in captured.out
-    assert "Bad Collection" in captured.out
-
-
 def test_normalize_familysearch_census_gather_derives_record_type():
     raw_census = {
         "census_year": "1900",

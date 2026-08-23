@@ -22,6 +22,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from Commissioner.envkit import load_tool_env  # noqa: E402
+from Commissioner.sqlite_helpers import register_rmnocase, rmnocase  # noqa: E402, F401
 
 # Global settings come from the project root's .env; this tool's own settings come from
 # its own subfolder's .env, so Registrar stays runnable standalone. Tool .env overrides
@@ -67,15 +68,6 @@ COLOR_VALUE: int = _get_env_int("REGISTRAR_COLOR_VALUE", 27)
 # ==========================================
 # DATABASE EXTRACTION
 # ==========================================
-def rmnocase(s1: Optional[str], s2: Optional[str]) -> int:
-    """Mock collation for RootsMagic's custom RMNOCASE (case-insensitive sort)."""
-    s1_clean = s1.lower() if s1 else ""
-    s2_clean = s2.lower() if s2 else ""
-    if s1_clean == s2_clean:
-        return 0
-    return -1 if s1_clean < s2_clean else 1
-
-
 def extract_people_from_rm(db_path: str) -> pd.DataFrame:
     """
     Connects to the RM 11 SQLite database and extracts primary names,
@@ -88,7 +80,7 @@ def extract_people_from_rm(db_path: str) -> pd.DataFrame:
 
     # Connect in read-only mode to prevent accidental modifications during read
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    conn.create_collation("RMNOCASE", rmnocase)
+    register_rmnocase(conn)
 
     query = """
             SELECT
@@ -335,7 +327,7 @@ def write_tasks_to_db(matches_df: pd.DataFrame, db_path: str) -> None:
     time.sleep(1)
 
     conn = sqlite3.connect(db_path)
-    conn.create_collation("RMNOCASE", rmnocase)
+    register_rmnocase(conn)
     cursor = conn.cursor()
 
     # --- FOLDER DEDUPLICATION ---

@@ -29,3 +29,11 @@ def test_to_snake_case():
     assert textutils.to_snake_case("some  spaced  name") == "some_spaced_name"
     assert textutils.to_snake_case("") == ""
     assert textutils.to_snake_case(None) == ""
+
+
+def test_sanitize_image_filename():
+    assert textutils.sanitize_image_filename("abc 123/def") == "abc_123_def.jpg"
+    assert textutils.sanitize_image_filename("abc-123_DEF") == "abc-123_DEF.jpg"
+    assert textutils.sanitize_image_filename("3:1:33S7-9YBJ-9PD7") == "3_1_33S7-9YBJ-9PD7.jpg"
+    assert textutils.sanitize_image_filename("") == ""
+    assert textutils.sanitize_image_filename(None) == ""

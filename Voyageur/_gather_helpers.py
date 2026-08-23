@@ -10,7 +10,6 @@ used to be duplicated between A.py and FS.py's own main().
 
 import os
 import re
-import shutil
 import sys
 import threading
 import time
@@ -22,6 +21,13 @@ from typing import Optional
 from dotenv import set_key
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from Commissioner.winio import move_with_retry  # noqa: E402
 
 
 def atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -39,25 +45,6 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
-
-
-def move_with_retry(src: Path, dst: Path, attempts: int = 5, delay: float = 0.5,
-                    on_collision: str = "overwrite") -> str:
-    """Moves src to dst, retrying on transient Windows file-lock errors. Returns "moved" or
-    "skipped" (when on_collision="skip" and dst already exists - src is discarded either way,
-    since a skipped download is never needed again)."""
-    if on_collision == "skip" and dst.exists():
-        src.unlink(missing_ok=True)
-        return "skipped"
-    for attempt in range(1, attempts + 1):
-        try:
-            shutil.move(str(src), str(dst))
-            return "moved"
-        except OSError as e:
-            if attempt == attempts:
-                print(f"[ERROR] Could not move {src.name} to {dst} after {attempts} attempts: {e}")
-                raise
-            time.sleep(delay)
 
 
 def cleanup_checkpoint_files(downloads_dir: Path, prefix: str, start_time: float) -> None:

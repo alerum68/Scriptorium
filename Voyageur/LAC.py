@@ -46,6 +46,7 @@ from Commissioner.jsonio import (  # noqa: E402
     load_checkpoint as jsonio_load_checkpoint,
     save_checkpoint as jsonio_save_checkpoint,
 )
+from Commissioner.record_registry import resolve_generic_setting  # noqa: E402
 
 # ==========================================
 # PATH & CONFIG SETUP
@@ -60,22 +61,6 @@ CHECKPOINT_DIR = _safe_path(PROGRAM_DIR, "Working/LAC")
 COOKIE_FILE = _safe_path(PROGRAM_DIR, "Working/LAC/lac_cookies.txt")
 DEFAULT_ARCHIVAL_NUMBER = "RG15"
 CDP_PORT = 9222
-
-
-def resolve_generic_setting(document_type: str, generic_key: str, default: str = "") -> str:
-    """Mirrors Paleographer.py's own resolve_setting(): resolves a generic runtime setting
-    (e.g. "MASTER_DB_NAME") via document_type's own field_remap table (e.g. Parish.pmt's
-    CHURCH_MASTER_DB_NAME -> MASTER_DB_NAME), falling back to reading generic_key directly.
-    Uses Commissioner.record_registry.get_field_remap() rather than Paleographer/engine.py's
-    own TYPE_CFG - see this plan's Global Constraints on LAC.py's dependency footprint."""
-    from Commissioner.record_registry import get_field_remap
-    field_remap = get_field_remap(document_type)
-    for prefixed_key, target in field_remap.items():
-        if target == generic_key:
-            val = os.environ.get(prefixed_key, "")
-            if val:
-                return val
-    return os.environ.get(generic_key, default)
 
 
 def resolve_master_db_path(document_type: str, program_dir: str) -> str:
@@ -127,18 +112,6 @@ def append_scaffold_sheets(master_data: Dict[str, Any], new_sheets: List[Dict[st
             continue
         master_sheets.append(sheet)
         existing_file_names.add(file_name)
-
-
-def validate_master_db_against_commissioner(master_data: Dict[str, Any], document_type: str,
-                                            collection_title: str) -> None:
-    """Non-blocking Commissioner schema check, identical in shape to
-    census_schema.py's validate_against_commissioner() (Sub-project 2) - a failure here is
-    logged and swallowed, never raised, and the MASTER_DB write proceeds regardless."""
-    try:
-        from Commissioner.record_registry import validate_collection_softly
-        validate_collection_softly(master_data, document_type, collection_title)
-    except Exception as e:
-        print(f"[WARN] Commissioner validation failed for {collection_title!r}: {e}")
 
 
 RECORD_TYPE_ARG_TO_DOCUMENT_TYPE = {"parish": "Parish", "scrip": "Scrip"}
@@ -219,7 +192,7 @@ def download_images(manifest_data: Dict[str, Any], out_dir: str, roll_num: str,
     Voyageur-Parish-Scrip-scaffold design spec. Returns a {canvas number: error} dict of
     any canvases that failed to download - a failure is tracked and reported, not just
     printed and forgotten, mirroring download_volume_assets's failed_pids."""
-    from Commissioner.record_registry import build_empty_sheet
+    from Commissioner.record_registry import build_empty_sheet, validate_collection_softly
 
     if "sequences" in manifest_data and manifest_data["sequences"]:
         canvases = manifest_data["sequences"][0].get("canvases", [])
@@ -260,7 +233,8 @@ def download_images(manifest_data: Dict[str, Any], out_dir: str, roll_num: str,
                             img_id = body[0].get("id", "")
 
             if not img_id:
-                print(f"\n[Warning] Could not extract image URL for canvas {i}")
+                print(f"\n[Warning] Could not extract image URL from canvas {i}")
+                failed[str(i)] = "No image URL in canvas"
                 continue
 
             filename = f"{roll_num}_{i:04d}.jpg"
@@ -279,7 +253,7 @@ def download_images(manifest_data: Dict[str, Any], out_dir: str, roll_num: str,
 
             new_sheet = build_empty_sheet(filename, "jpg", page_id=page_id)
             append_scaffold_sheets(master_data, [new_sheet])
-            validate_master_db_against_commissioner(master_data, document_type, collection_title)
+            validate_collection_softly(master_data, document_type, collection_title)
             save_master_db(master_db_path, master_data)
 
         except Exception as e:
@@ -414,7 +388,7 @@ def download_volume_assets(pids: List[str], media_dir: str, checkpoint_path: str
     downloaded asset, incrementally - see the Voyageur-Parish-Scrip-scaffold design spec.
     Each PID's source_documents are persisted into the checkpoint so a MASTER_DB
     reset can re-seed scaffolds for already-downloaded PIDs without re-fetching."""
-    from Commissioner.record_registry import build_empty_sheet
+    from Commissioner.record_registry import build_empty_sheet, validate_collection_softly
 
     checkpoint = load_checkpoint(checkpoint_path)
     downloaded = set(checkpoint.get("downloaded_pids", []))
@@ -430,7 +404,7 @@ def download_volume_assets(pids: List[str], media_dir: str, checkpoint_path: str
             for entry in src_docs
         ]
         append_scaffold_sheets(master_data, new_sheets)
-        validate_master_db_against_commissioner(master_data, document_type, collection_title)
+        validate_collection_softly(master_data, document_type, collection_title)
         save_master_db(master_db_path, master_data)
 
     for pid in pids:
@@ -548,7 +522,7 @@ def download_volume_assets_multiworker(pids: List[str], media_dir: str, checkpoi
     accumulates sheets, which is exactly the condition that let the watchdog race happen in
     the first place. Batching keeps the drain loop cheap regardless of harvest size, and a
     guaranteed final flush before returning means nothing is lost."""
-    from Commissioner.record_registry import build_empty_sheet
+    from Commissioner.record_registry import build_empty_sheet, validate_collection_softly
 
     checkpoint = load_checkpoint(checkpoint_path)
     downloaded = set(checkpoint.get("downloaded_pids", []))
@@ -563,7 +537,7 @@ def download_volume_assets_multiworker(pids: List[str], media_dir: str, checkpoi
             for entry in source_documents
         ]
         append_scaffold_sheets(master_data, new_sheets)
-        validate_master_db_against_commissioner(master_data, document_type, collection_title)
+        validate_collection_softly(master_data, document_type, collection_title)
 
     pid_documents = checkpoint.get("pid_documents", {})
     reseeded_any = False

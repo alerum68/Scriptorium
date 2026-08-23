@@ -27,7 +27,6 @@ import os
 import re
 import sys
 import threading
-import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -55,10 +54,23 @@ from _gather_helpers import (
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+try:
+    from Archivist.Utils import split_full_name  # noqa: E402
+except (ImportError, AttributeError):
+    import importlib.util
+    _u_spec = importlib.util.spec_from_file_location("Archivist_Utils", _REPO_ROOT / "Archivist" / "Utils.py")
+    _u_mod = importlib.util.module_from_spec(_u_spec)
+    _u_spec.loader.exec_module(_u_mod)
+    split_full_name = _u_mod.split_full_name
 from Commissioner import normalization  # noqa: E402
 from Commissioner.envkit import load_tool_env  # noqa: E402
 from Commissioner.models import FACT_DEFINITIONS  # noqa: E402
 from Commissioner.record_registry import load_pmt_front_matter  # noqa: E402
+from Commissioner.textutils import sanitize_image_filename as sanitize_item_id_filename  # noqa: E402
+from Commissioner.winio import (  # noqa: E402
+    read_text_with_retry as _read_text_with_retry,
+    unlink_with_retry as _unlink_with_retry,
+)
 
 ANTIQUARIAN_DIR = Path(__file__).resolve().parent.parent
 FACT_TYPES_PATH = ANTIQUARIAN_DIR / "Commissioner" / "FactTypes.json"
@@ -431,32 +443,7 @@ def detect_record_family_from_raw(raw: dict, catalog_items: Dict[str, dict]) -> 
 # ==========================================
 # ASSEMBLY
 # ==========================================
-def sanitize_item_id_filename(item_id: str) -> str:
-    """Mirrors Voyageur.js's own image-filename sanitization (line 93:
-    itemId.replace(/[^a-zA-Z0-9_-]/g, '_') + '.jpg') so document_metadata.file_name always
-    matches the real filename main()'s image-move loop already produces for this item -
-    both are derived independently from the same item_id rather than one scanning the
-    filesystem to match the other."""
-    return re.sub(r'[^a-zA-Z0-9_-]', '_', item_id) + ".jpg" if item_id else ""
-
-
 RECORD_FAMILY_TO_DOCUMENT_TYPE = {"church": "Parish", "scrip": "Scrip"}
-
-
-def validate_against_commissioner(final_data: dict, record_family: str, collection_title: str) -> None:
-    """Non-blocking Commissioner schema check for Parish/Scrip gathers, mirroring
-    census_schema.py's validate_against_commissioner() (Sub-project 2) - a failure here is
-    logged and swallowed, never raised. record_family values with no matching Commissioner
-    document type (e.g. "wills", "other") are silently skipped - only "church" (-> Parish)
-    and "scrip" (-> Scrip) are currently recognized document types."""
-    document_type = RECORD_FAMILY_TO_DOCUMENT_TYPE.get(record_family)
-    if document_type is None:
-        return
-    try:
-        from Commissioner.record_registry import validate_collection_softly
-        validate_collection_softly(final_data, document_type, collection_title)
-    except Exception as e:
-        print(f"[WARN] Commissioner validation failed for {collection_title!r}: {e}")
 
 
 def build_universal_json(raw: dict, items_raw: List[dict], catalog_items: Dict[str, dict],
@@ -568,18 +555,6 @@ def parse_catalog_roll(catalog_items: Dict[str, dict]) -> Dict[str, str]:
         if m:
             return {"series": m.group("series"), "roll": m.group("roll")}
     return {"series": "", "roll": ""}
-
-
-def split_full_name(raw_name: str) -> Tuple[str, str]:
-    """Splits FamilySearch's single combined "Given Surname" Name field - unlike Ancestry's
-    census index, which already exposes separate Given Name/Surname columns - into the same
-    two-field shape, using the last whitespace-separated token as the surname. Same
-    convention as Archivist.py's own split_full_name (used there for a different field, but
-    the same "Given Surname" shape)."""
-    parts = raw_name.strip().split()
-    if len(parts) < 2:
-        return raw_name.strip(), ""
-    return " ".join(parts[:-1]), parts[-1]
 
 
 def pid_from_identifier(identifier: str) -> str:
@@ -728,31 +703,6 @@ def build_census_json(raw: dict, items_raw: List[dict], catalog_items: Dict[str,
     return {"census_year": census_year, "location": location_info["state"], "pages": pages}
 
 
-def _read_text_with_retry(path: Path, attempts: int = 5, delay: float = 0.5) -> str:
-    """Chrome (or antivirus scanning it) can still hold a freshly-downloaded file open for
-    a brief moment after it appears in the folder listing, so an immediate read can lose to
-    a transient PermissionError/WinError 32 on Windows. Same reasoning as A.py's
-    move_with_retry."""
-    for attempt in range(1, attempts + 1):
-        try:
-            return path.read_text(encoding="utf-8")
-        except OSError:
-            if attempt == attempts:
-                raise
-            time.sleep(delay)
-
-
-def _unlink_with_retry(path: Path, attempts: int = 5, delay: float = 0.5) -> None:
-    for attempt in range(1, attempts + 1):
-        try:
-            path.unlink(missing_ok=True)
-            return
-        except OSError:
-            if attempt == attempts:
-                raise
-            time.sleep(delay)
-
-
 def normalize_familysearch_census_gather(raw_census: dict, collection_title: str) -> dict:
     """Translates a raw FamilySearch census gather (already grouped into Voyageur's own
     {census_year, pages: [...]} shape by build_census_json) into the shared record schema -
@@ -809,7 +759,10 @@ def convert_raw_gather_to_final(raw_data: dict) -> Tuple[dict, Optional[str]]:
         clean_name = build_detailed_census_filename(raw_census.get("census_year", ""), final_data, "FamilySearch")
     else:
         final_data = build_universal_json(raw_data, items_raw, catalog_items, record_family)
-        validate_against_commissioner(final_data, record_family, raw_data.get("collection_title", ""))
+        document_type = RECORD_FAMILY_TO_DOCUMENT_TYPE.get(record_family)
+        if document_type:
+            from Commissioner.record_registry import validate_collection_softly
+            validate_collection_softly(final_data, document_type, raw_data.get("collection_title", ""))
         clean_name = None
 
     return final_data, clean_name

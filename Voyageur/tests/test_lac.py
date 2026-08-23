@@ -161,14 +161,6 @@ def test_append_scaffold_sheets_dedups_by_file_name():
     assert master_data["sheets"] == [existing_sheet]
 
 
-def test_validate_master_db_against_commissioner_warns_and_does_not_raise(capsys):
-    bad_data = {"collection_title": "Bad", "sheets": [{"records": "not-a-list"}]}
-    LAC.validate_master_db_against_commissioner(bad_data, "Parish", "Bad Collection")
-    captured = capsys.readouterr()
-    assert "[WARN]" in captured.out
-    assert "Bad Collection" in captured.out
-
-
 def test_resolve_record_type_maps_parish_and_scrip():
     assert LAC._resolve_record_type("parish") == "Parish"
     assert LAC._resolve_record_type("scrip") == "Scrip"

@@ -1,6 +1,4 @@
 """Tests for census_schema.py's field-map normalization across all three census eras."""
-import sys
-
 import census_schema
 
 
@@ -16,7 +14,7 @@ def _page(people, **overrides):
     return page
 
 
-def test_validate_against_commissioner_accepts_valid_normalized_output(capsys):
+def test_normalize_and_validate_census_accepts_valid_normalized_output(capsys):
     raw = {
         "census_year": "1900", "location": "Minnesota",
         "pages": [_page([
@@ -24,39 +22,10 @@ def test_validate_against_commissioner_accepts_valid_normalized_output(capsys):
                         "Relationship to Head": "Head", "Family Number": "5"}, "pid": "p1"},
         ])],
     }
-    doc = census_schema.normalize_census_pages(raw, "ancestry_census", "1900 US Census", "Census_1900")
-
-    census_schema.validate_against_commissioner(doc, "1900 US Census")
-
+    doc = census_schema.normalize_and_validate_census(raw, "ancestry_census", "1900 US Census", "Census_1900")
+    assert doc["collection_title"] == "1900 US Census"
     captured = capsys.readouterr()
     assert "[WARN]" not in captured.out
-
-
-def test_validate_against_commissioner_logs_and_does_not_raise_on_bad_shape(capsys):
-    bad_doc = {"collection_title": "Bad Collection", "sheets": [{"records": "not-a-list"}]}
-
-    census_schema.validate_against_commissioner(bad_doc, "Bad Collection")
-
-    captured = capsys.readouterr()
-    assert "[WARN]" in captured.out
-    assert "Bad Collection" in captured.out
-
-
-def test_validate_against_commissioner_survives_broken_commissioner_import(capsys, monkeypatch):
-    """The Commissioner.record_registry import happens inside validate_against_commissioner's
-    own try block (Fix 2), not at census_schema's module scope - so even if
-    Commissioner.record_registry itself is unimportable/broken (e.g. a malformed .pmt file
-    raising inside _build_registry() at import time), this function must still catch it
-    and warn rather than let the import propagate and crash A.py/FS.py at startup."""
-    monkeypatch.setitem(sys.modules, "Commissioner.record_registry", None)
-
-    doc = {"collection_title": "Test Collection", "sheets": []}
-
-    census_schema.validate_against_commissioner(doc, "Test Collection")
-
-    captured = capsys.readouterr()
-    assert "[WARN]" in captured.out
-    assert "Test Collection" in captured.out
 
 
 def test_citation_carries_collection_id_from_page_for_source_id_resolution():

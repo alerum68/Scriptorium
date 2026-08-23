@@ -305,3 +305,22 @@ def get_field_remap(document_type: str) -> Dict[str, str]:
     _get_schema(document_type)  # raises UnknownDocumentTypeError early if unrecognized
     front_matter = _load_pmt_front_matter(PMT_DIR / f"{document_type}.pmt")
     return front_matter.get("field_remap") or {}
+
+
+def resolve_generic_setting(document_type: str, generic_key: str, default: str = "") -> str:
+    """Resolves a generic runtime setting (e.g. 'MASTER_DB_NAME') via document_type's own
+    field_remap table in front matter, falling back to reading generic_key directly from environment."""
+    if document_type:
+        try:
+            field_remap = get_field_remap(document_type)
+            for prefixed_key, target in field_remap.items():
+                if target == generic_key:
+                    val = os.getenv(prefixed_key)
+                    if val is not None and val.strip():
+                        return val.strip()
+        except UnknownDocumentTypeError:
+            pass
+    val = os.getenv(generic_key)
+    if val is not None and val.strip():
+        return val.strip()
+    return default

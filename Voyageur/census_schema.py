@@ -30,6 +30,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from Commissioner.census_consts import get_census_era  # noqa: E402
 from Commissioner.normalization import capitalize_text_string  # noqa: E402
+from Commissioner.textutils import sanitize_image_filename  # noqa: E402
 
 FIELD_MAPS_DIR = Path(__file__).resolve().parent / "field_maps"
 
@@ -56,17 +57,6 @@ def load_field_map(name: str) -> Dict[str, Dict[str, str]]:
 def _parse_year(value: Any) -> int:
     match = re.search(r'(1[789]\d0|19[0-4]\d|1950)', str(value or ""))
     return int(match.group(1)) if match else 0
-
-
-def _sanitize_image_filename(image_id: str) -> str:
-    """Mirrors FS.py's own sanitize_item_id_filename (duplicated rather than imported -
-    same reasoning as get_census_era above: FS.py imports census_schema, so importing back
-    would invert the dependency). Must match exactly what move_downloaded_images() actually
-    leaves on disk - FamilySearch's image_id is a raw ark (e.g. "3:1:33S7-9YBJ-9PD7") that
-    needs this substitution to become a real filename; Ancestry's own getBaseImageId() in
-    Voyageur.js already strips to [a-zA-Z0-9_-] before this ever runs, so this is a no-op
-    for that source's image_id."""
-    return re.sub(r'[^a-zA-Z0-9_-]', '_', str(image_id).strip()) + ".jpg" if image_id else ""
 
 
 def _household_key(columns: Dict[str, str], field_map: Dict[str, Dict[str, str]]) -> Optional[str]:
@@ -257,7 +247,7 @@ def normalize_census_pages(raw: dict, field_map_name: str, collection_title: str
                 "participants": participants,
             })
 
-        file_name = _sanitize_image_filename(page.get("image_id", ""))
+        file_name = sanitize_image_filename(page.get("image_id", ""))
         sheets.append({
             "page_id": str(page.get("page_number", "")),
             "document_metadata": {
@@ -286,32 +276,12 @@ def normalize_census_pages(raw: dict, field_map_name: str, collection_title: str
     }
 
 
-def validate_against_commissioner(normalized: dict, collection_title: str) -> None:
-    """Runs a normalize_census_pages() result through Commissioner's schema validation as
-    a visibility check, never a gate: a failure is logged and swallowed here so a
-    Commissioner-side gap can never block a real gather or corrupt its output. This is
-    Commissioner validation's first production call site - see the sub-project 2 design
-    spec (docs/superpowers/specs/2026-08-06-census-commissioner-wiring-design.md).
-
-    The `Commissioner.record_registry` import is deliberately made here, inside the try
-    block, rather than at module scope: importing it triggers _build_registry(), which
-    parses every .pmt file in the toolbox - a malformed or newly-incompatible .pmt file
-    would raise at import time, before this function's own try/except could ever catch
-    it. A.py/FS.py both import census_schema at their own module scope, so a module-scope
-    import here would crash their whole run on startup - a far worse failure than the
-    soft-fail this function exists to guarantee."""
-    try:
-        from Commissioner.record_registry import validate_collection_softly
-        validate_collection_softly(normalized, "Census", collection_title)
-    except Exception as e:
-        print(f"[WARN] Commissioner validation failed for {collection_title!r}: {e}")
-
-
 def normalize_and_validate_census(raw: dict, field_map_name: str, collection_title: str,
                                   record_type_name: str) -> dict:
     """Normalizes then validates in one call - the exact pair both A.py and FS.py apply at
     census gather time. Pulled out as its own function so each call site is one line and
     testable without duplicating the normalize+validate pairing."""
     normalized = normalize_census_pages(raw, field_map_name, collection_title, record_type_name)
-    validate_against_commissioner(normalized, collection_title)
+    from Commissioner.record_registry import validate_collection_softly
+    validate_collection_softly(normalized, "Census", collection_title)
     return normalized

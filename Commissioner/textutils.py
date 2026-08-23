@@ -21,6 +21,7 @@ __all__ = [
     "to_snake_case",
     "normalize_whitespace",
     "sanitize_quotes",
+    "sanitize_image_filename",
 ]
 
 # Zero-width / invisible characters that survive JSON round-trips and quietly
@@ -80,3 +81,14 @@ def to_snake_case(name: str) -> str:
     text = re.sub(r"[\s\-]+", "_", text)
     text = re.sub(r"_+", "_", text)
     return text.lower().strip("_")
+
+
+def sanitize_image_filename(image_id: str) -> str:
+    """Sanitize an image identifier or item ID to a safe .jpg filename.
+
+    Replaces any character outside [a-zA-Z0-9_-] with an underscore and appends .jpg.
+    Returns empty string if image_id is empty/falsy.
+    """
+    if not image_id:
+        return ""
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", str(image_id).strip()) + ".jpg"

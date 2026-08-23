@@ -19,6 +19,7 @@ import customtkinter as ctk
 import yaml
 from dotenv import dotenv_values
 from Commissioner.record_registry import load_pmt_front_matter, prompt_search_dirs
+from Commissioner.winio import replace_with_retry
 
 BASE_DIR = Path(__file__).resolve().parent
 APP_VERSION = "0.07.00"
@@ -103,15 +104,8 @@ def batch_set_env(env_path: Path, updates: Dict[str, str]) -> None:
 
     content = "\n".join(new_lines) + "\n"
     tmp_path = env_path.with_suffix(".tmp")
-    for attempt in range(5):
-        try:
-            tmp_path.write_text(content, encoding="utf-8")
-            os.replace(tmp_path, env_path)
-            break
-        except PermissionError:
-            if attempt == 4:
-                raise
-            time.sleep(0.05 * (attempt + 1))
+    tmp_path.write_text(content, encoding="utf-8")
+    replace_with_retry(tmp_path, env_path)
 
 
 # ==========================================

@@ -60,23 +60,12 @@ from Commissioner.jsonio import (  # noqa: E402
     load_checkpoint as jsonio_load_checkpoint,
     save_checkpoint as jsonio_save_checkpoint,
 )
+from Commissioner.record_registry import resolve_generic_setting  # noqa: E402, F401
 
 # ==========================================
 # PATH & CONFIG RESOLUTION
 # ==========================================
 _safe_path = safe_path
-
-
-def resolve_generic_setting(document_type: str, generic_key: str, default: str = "") -> str:
-    from Commissioner.record_registry import get_field_remap
-
-    remap = get_field_remap(document_type)
-    for k, v in remap.items():
-        if v == generic_key:
-            val = os.getenv(k)
-            if val is not None and val.strip():
-                return val.strip()
-    return os.getenv(generic_key, default).strip()
 
 
 PROGRAM_DIR = os.environ.get("PROGRAM_DIR", str(Path(__file__).resolve().parent.parent)).strip()

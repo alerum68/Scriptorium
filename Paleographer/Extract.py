@@ -30,6 +30,7 @@ from AntiquarianMCP import agy_client  # noqa: E402
 
 from Commissioner import normalization  # noqa: E402
 from Commissioner.envkit import load_tool_env  # noqa: E402
+from Commissioner.record_registry import resolve_generic_setting  # noqa: E402
 
 
 # Load global settings from project root .env and local settings from subfolder .env.
@@ -219,12 +220,7 @@ TYPE_CFG = engine.parse_type_config(engine.resolve_prompt_path(RECORD_TYPE_NAME)
 def resolve_setting(generic_key: str, default: str = "") -> str:
     """Resolves a generic runtime setting via the active record type's own field_remap
     table, falling back to reading generic_key directly."""
-    for prefixed_key, target in TYPE_CFG.field_remap.items():
-        if target == generic_key:
-            val = os.getenv(prefixed_key, "")
-            if val:
-                return val
-    return os.getenv(generic_key, default)
+    return resolve_generic_setting(TYPE_CFG.name, generic_key, default)
 
 
 API_BUDGET: float = float(os.getenv("API_BUDGET", "5.00"))
