@@ -907,7 +907,7 @@ def normalize_familysearch_gather_url(url: str) -> str:
     return urlunparse(parsed_url._replace(query=urlencode({"view": "index", "lang": "en"})))
 
 
-def main() -> None:
+def main() -> dict:
     print("========================================")
     print(" Voyageur (FS) - FamilySearch Gather Automation")
     print("========================================")

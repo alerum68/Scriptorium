@@ -96,7 +96,7 @@ def build_generic_primary_event_lines(rec: dict, part: dict, event_tag: str, wit
     return lines
 
 
-_build_generic_primary_event_lines = build_generic_primary_event_lines
+
 
 
 class GeneralProfile:

@@ -504,9 +504,9 @@ def cross_check_claim_record(record: Dict[str, Any], cookies: Dict[str, str], me
         reasons.append(
             "Paleographer: no claim_number/affidavit_number/scrip_number/e-number available to search LAC with")
         if reasons:
-        existing = record.get("review_reason")
-        record["review_reason"] = "; ".join([existing] + reasons) if existing else "; ".join(reasons)
-    return record
+            existing = record.get("review_reason")
+            record["review_reason"] = "; ".join([existing] + reasons) if existing else "; ".join(reasons)
+        return record
 
     all_found_pids = set()
     for query in queries:

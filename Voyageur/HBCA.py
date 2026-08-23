@@ -382,7 +382,7 @@ def parse_keystone_search_response(html_text: str, base_url: str = KEYSTONE_BASE
 _KEYSTONE_BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/125.0.0.0 Safari/537.36"
+    "Chrome/120.0.0.0 Safari/537.36"
 )
 
 
