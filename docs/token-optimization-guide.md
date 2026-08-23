@@ -201,6 +201,27 @@ Track these for improvement:
 
 ---
 
+## Gemini/Antigravity Specific Rules
+
+When using the Antigravity (AGY) agent framework, apply these specific tool and behavior patterns to minimize context bloat:
+
+### 1. Targeted Reading & Searching
+- **Search Before Reading**: Use `grep_search` to find specific symbols or keywords instead of using `view_file` to hunt for them.
+- **Slice Notation**: Use the `StartLine` and `EndLine` parameters in `view_file` to read only the specific functions or classes you need, using line numbers found via `grep_search`.
+- **Directory Reconnaissance**: Use `list_dir` and `find_by_name` to understand structure rather than relying on heavy shell commands.
+
+### 2. Efficient Writing
+- **Chunk Edits**: Always prefer `replace_file_content` for modifying existing files. Provide precise `TargetContent` to replace specific blocks rather than using `write_to_file` to overwrite the entire file.
+- **Silent Edits**: Do not echo large blocks of modified code or JSON back to the chat. The user sees your file changes natively. Acknowledge the change concisely.
+
+### 3. Context Isolation
+- **Delegate Heavy Context**: If a task requires parsing massive files (like large GEDCOMs or DB JSONs), use `invoke_subagent` to spawn a `research` agent. It can summarize the data and send a tiny, concise message back to you, keeping your main context window clean.
+
+### 4. Use Artifacts
+- **Persistent Data**: For long plans, lists, or structured data the user needs to see, generate an Artifact (`write_to_file` with `ArtifactMetadata`) rather than dumping it into the chat stream where it will bloat the rolling context history.
+
+---
+
 *See also:*
 - *[PROJECT_RULES.md](../PROJECT_RULES.md) — Token Efficiency Rules*
 - *[model-selection-playbook.md](model-selection-playbook.md) — Model Selection Playbook*
