@@ -456,6 +456,7 @@ def build_claim_search_queries(record: Dict[str, Any]) -> List[str]:
     if scrip_numbers:
         return [f"Scrip: {n}" for n in scrip_numbers]
 
+    reasons = []
     file_name = (record.get("document_metadata") or {}).get("file_name", "")
     e_number_match = re.search(r"(e\d{6,})", file_name, re.IGNORECASE)
     if e_number_match:
@@ -473,6 +474,7 @@ def cross_check_claim_record(record: Dict[str, Any], cookies: Dict[str, str], me
                              ) -> Dict[str, Any]:
     """Single-claim cross-check: resolves this Scrip record's own PID, searches for related documents,
     and downloads everything found into record['source_documents']."""
+    reasons = []
     file_name = (record.get("document_metadata") or {}).get("file_name", "")
     own_pid = resolve_pid_from_filename(file_name)
 
@@ -495,23 +497,26 @@ def cross_check_claim_record(record: Dict[str, Any], cookies: Dict[str, str], me
                     type_fields[k] = v
             resolve_maiden_name_for_record(record)
         except lac_client.LacCallError as e:
-            record.setdefault("review_reason", []).append(f"Paleographer: failed to fetch own PID {own_pid}: {e}")
+            reasons.append(f"Paleographer: failed to fetch own PID {own_pid}: {e}")
 
     queries = build_claim_search_queries(record)
     if not queries:
-        record.setdefault("review_reason", []).append(
+        reasons.append(
             "Paleographer: no claim_number/affidavit_number/scrip_number/e-number available to search LAC with")
-        return record
+        if reasons:
+        existing = record.get("review_reason")
+        record["review_reason"] = "; ".join([existing] + reasons) if existing else "; ".join(reasons)
+    return record
 
     all_found_pids = set()
     for query in queries:
         try:
             all_found_pids.update(lac_client.search(query, cookies))
         except lac_client.LacSearchAuthError as e:
-            record.setdefault("review_reason", []).append(f"Paleographer: search cookie expired/invalid: {e}")
+            reasons.append(f"Paleographer: search cookie expired/invalid: {e}")
             break
         except lac_client.LacCallError as e:
-            record.setdefault("review_reason", []).append(f"Paleographer: search failed for {query!r}: {e}")
+            reasons.append(f"Paleographer: search failed for {query!r}: {e}")
 
     related_pids = sorted(p for p in all_found_pids if p != own_pid)
     source_documents = record.setdefault("source_documents", [])
@@ -520,9 +525,12 @@ def cross_check_claim_record(record: Dict[str, Any], cookies: Dict[str, str], me
             bundle = voyageur_lac.download_pid_bundle(related_pid, media_dir)
             source_documents.extend(bundle["source_documents"])
         except lac_client.LacCallError as e:
-            record.setdefault("review_reason", []).append(
+            reasons.append(
                 f"Paleographer: failed to fetch related PID {related_pid}: {e}")
 
+    if reasons:
+        existing = record.get("review_reason")
+        record["review_reason"] = "; ".join([existing] + reasons) if existing else "; ".join(reasons)
     return record
 
 

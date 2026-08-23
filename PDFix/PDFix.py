@@ -106,7 +106,7 @@ def optimize_pdfs(directory, compression_level=1, backup=False, size_threshold_m
 
             # A file already optimized this run, or a leftover temp file from a prior
             # interrupted run, must not be re-processed.
-            if pdf_path in processed_files or ".temp_optimized.pdf" in pdf_path:
+            if pdf_path in processed_files or os.path.basename(pdf_path).startswith(".temp_opt_"):
                 continue
 
             processed_files.add(pdf_path)

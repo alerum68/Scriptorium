@@ -290,7 +290,7 @@ def normalize_census_pages(raw: dict, field_map_name: str, collection_title: str
                 "year": str(census_year) if census_year else "", "event_date": "",
                 "event_place": place, "citation_details": "", "citation_text": "",
                 "review": record_review,
-                "review_reason": "One or more participants have unmapped columns." if record_review else None,
+                "review_reason": "Missing expected given name or other required data." if record_review else None,
                 "continues_on_next_image": False, "continues_from_previous_image": False,
                 "type_specific_fields": type_specific,
                 "participants": participants,
