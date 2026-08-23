@@ -1020,6 +1020,9 @@ US_STATES_AND_TERRITORIES = {
     "colorado territory", "nevada territory", "idaho territory", "arizona territory", "montana territory",
     "wyoming territory", "hawaii territory", "alaska territory", "indian territory",
     "united states", "united states of america", "usa", "u.s.a.", "us", "u.s.",
+    "n dak", "s dak", "n dakota", "s dakota", "no dakota", "so dakota",
+    "n. dak.", "s. dak.", "n. dak", "s. dak",
+    "mass", "penn", "penna", "wash", "mich"
 }
 
 # This project's core subjects are overwhelmingly Canadian/Métis/HBCA-region families
@@ -1141,6 +1144,8 @@ def get_nationality_value(row: pd.Series, birth_place: str) -> str:
             return place if is_foreign else ""
 
     nat_val = Utils.clean_val(row.get('Nationality'))
+    if nat_val and not is_foreign_birthplace(nat_val):
+        nat_val = ""
     if not nat_val and birth_place and is_foreign_birthplace(birth_place):
         nat_val = birth_place
     return nat_val
