@@ -27,6 +27,7 @@ move these imports to module level.
 """
 
 import difflib
+import importlib
 import json
 import os
 import re
@@ -108,13 +109,15 @@ def archivist(tmp_path_factory):
 
     env_keys = ("GENEALOGY_DIR", "GEDCOM_OUTPUT_PATH", "GEDCOM_OUTPUT_NAME",
                 "GEDCOM_OUTPUT_MODE", "MEDIA_DIR", "RM_DIR", "FTM_DIR",
-                "RESEARCHER_NAME", "ORG_NAME")
+                "RESEARCHER_NAME", "ORG_NAME",
+                "SUBM_ADDRESS", "MGS_GROUP_URL", "ANCESTRY_GROUP_URL")
     saved_env = {k: os.environ.get(k) for k in env_keys}
     os.environ["GENEALOGY_DIR"] = str(genealogy)
     os.environ["GEDCOM_OUTPUT_PATH"] = str(out_dir)
     os.environ["GEDCOM_OUTPUT_NAME"] = "golden.ged"
     os.environ["GEDCOM_OUTPUT_MODE"] = "Both"
-    for k in ("MEDIA_DIR", "RM_DIR", "FTM_DIR", "RESEARCHER_NAME", "ORG_NAME"):
+    for k in ("MEDIA_DIR", "RM_DIR", "FTM_DIR", "RESEARCHER_NAME", "ORG_NAME",
+              "SUBM_ADDRESS", "MGS_GROUP_URL", "ANCESTRY_GROUP_URL"):
         os.environ[k] = ""
 
     archivist_dir = REPO_ROOT / "Archivist"
@@ -125,6 +128,13 @@ def archivist(tmp_path_factory):
     try:
         # Flat imports, matching how the tools themselves import their siblings.
         import Utils      # Archivist/Utils.py
+        # Utils freezes SUBM_ADDRESS/MGS_GROUP_URL/ANCESTRY_GROUP_URL etc. into module
+        # constants at import time. If another test file (e.g. Archivist/tests/*, which
+        # sorts before this file and pollutes os.environ at conftest collection time)
+        # already imported Utils earlier in the session, the import above is a no-op
+        # cache hit and the stale constants survive untouched. Force a reload so they're
+        # always recomputed from the environment this fixture just set.
+        importlib.reload(Utils)
         import Census
         import General
         import Scrip
