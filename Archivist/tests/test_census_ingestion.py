@@ -11,6 +11,7 @@ those functions still handle correctly, not that the functions themselves change
 import Utils
 # noinspection PyUnresolvedReferences,PyPep8Naming
 import Census as arc
+from Commissioner.census_consts import get_census_era
 import json
 import sys
 from pathlib import Path
@@ -118,7 +119,7 @@ def test_adapter_reads_street_and_it_drives_the_cens_addr_line(tmp_path, monkeyp
     assert df.iloc[0]["Street"] == "212 Main St"
 
     monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", arc.get_census_era(int(year)))
+    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
     monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
@@ -181,7 +182,7 @@ def test_relational_era_household_parsing_works_on_adapted_dataframe():
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
     arc.CENSUS_YEAR = int(year)
-    arc.CENSUS_ERA = arc.get_census_era(arc.CENSUS_YEAR)
+    arc.CENSUS_ERA = get_census_era(arc.CENSUS_YEAR)
     assert arc.CENSUS_ERA == "relationship"
 
     units, unrelated, flags = arc.parse_household_relational(df)
@@ -237,7 +238,7 @@ def test_sort_group_by_line_number_fixes_out_of_order_household_and_reattaches_c
     ])])
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
     arc.CENSUS_YEAR = int(year)
-    arc.CENSUS_ERA = arc.get_census_era(arc.CENSUS_YEAR)
+    arc.CENSUS_ERA = get_census_era(arc.CENSUS_YEAR)
 
     sorted_df = arc.sort_group_by_line_number(df)
     assert list(sorted_df["Given Name"]) == ["Jess", "May", "Marlys", "Gerald", "Glenda", "Faye", "James"]
@@ -265,7 +266,7 @@ def test_heuristic_era_household_parsing_works_on_adapted_dataframe():
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
     arc.CENSUS_YEAR = int(year)
-    arc.CENSUS_ERA = arc.get_census_era(arc.CENSUS_YEAR)
+    arc.CENSUS_ERA = get_census_era(arc.CENSUS_YEAR)
     assert arc.CENSUS_ERA == "heuristic"
 
     units, unrelated, flags = arc.parse_household(df)
@@ -310,7 +311,7 @@ def test_institution_resident_gets_no_family_links_even_with_head_wife_roles():
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
     arc.CENSUS_YEAR = int(year)
-    arc.CENSUS_ERA = arc.get_census_era(arc.CENSUS_YEAR)
+    arc.CENSUS_ERA = get_census_era(arc.CENSUS_YEAR)
     assert arc.CENSUS_ERA == "relationship"
 
     units, unrelated, flags = arc.parse_household_relational(df)
@@ -377,7 +378,7 @@ def test_census_gedcom_output_has_no_illegal_name_under_sour_and_single_extensio
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
     monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", arc.get_census_era(int(year)))
+    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     # GEDCOM_OUTPUT_NAME is read from the environment at Utils import time, and this
     # dev machine's Archivist/.env sets it to an empty string - resolve_gedcom_output_path
@@ -440,7 +441,7 @@ def test_census_gedcom_media_attaches_to_each_fact_citation_per_original_design(
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
     monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", arc.get_census_era(int(year)))
+    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
     monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
@@ -483,7 +484,7 @@ def test_census_gedcom_refn_is_bare_ark_not_the_gedcomx_type_prefixed_form(tmp_p
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
     monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", arc.get_census_era(int(year)))
+    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
     monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
@@ -514,7 +515,7 @@ def test_census_gedcom_fsftid_uses_persons_own_person_ark_when_present(tmp_path,
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
     monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", arc.get_census_era(int(year)))
+    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
     monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
@@ -546,7 +547,7 @@ def test_census_gedcom_fsftid_omitted_when_no_true_person_ark_found(tmp_path, mo
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
     monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", arc.get_census_era(int(year)))
+    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
     monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
@@ -575,7 +576,7 @@ def test_census_gedcom_apid_is_individual_level_not_nested_in_citation(tmp_path,
 
     monkeypatch.setattr(arc, "APID_DB", "2442")
     monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", arc.get_census_era(int(year)))
+    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
     monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
@@ -878,7 +879,7 @@ def test_parent_birthplace_appends_second_birt_fact_to_existing_father(tmp_path,
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
     monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", arc.get_census_era(int(year)))
+    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
     monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
@@ -915,7 +916,7 @@ def test_parent_birthplace_synthesizes_stub_parents_when_foreign_and_none_extrac
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
     monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", arc.get_census_era(int(year)))
+    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
     monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)
@@ -954,7 +955,7 @@ def test_parent_birthplace_does_not_synthesize_a_person_for_domestic_birthplace(
     df, year, _ = arc.build_census_dataframe_from_unified(doc)
 
     monkeypatch.setattr(arc, "CENSUS_YEAR", int(year))
-    monkeypatch.setattr(arc, "CENSUS_ERA", arc.get_census_era(int(year)))
+    monkeypatch.setattr(arc, "CENSUS_ERA", get_census_era(int(year)))
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_PATH", tmp_path)
     monkeypatch.setattr(Utils, "GEDCOM_OUTPUT_NAME", "Test_Census.ged")
     monkeypatch.setattr(arc, "IMAGE_DIR", tmp_path)

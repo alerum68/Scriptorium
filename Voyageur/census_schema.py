@@ -22,45 +22,14 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
-from titlecase import titlecase
 import yaml
 
-# Commissioner lives in a sibling tool folder, not an installed package - add the repo
-# root to sys.path so it can be imported by absolute path, matching Paleographer.py's own
-# precedent for cross-package imports (Paleographer/Paleographer.py:47-53). The import of
-# Commissioner.record_registry itself happens inside validate_against_commissioner()'s try
-# block, not here at module scope - see that function's docstring for why.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-PRESERVED_ACRONYMS = {"HBC", "NWT", "USA", "NWMP", "RCMP", "UK", "US", "ED", "PID", "RM", "FTM"}
-
-
-def _titlecase_callback(word: str, **_kwargs) -> str | None:
-    w_clean = re.sub(r'^[^\w]+|[^\w]+$', '', word)
-    if w_clean.upper() in PRESERVED_ACRONYMS:
-        return word.replace(w_clean, w_clean.upper())
-    if "-" in word:
-        parts = word.split("-")
-        return "-".join(
-            (
-                p.upper() if re.sub(r'^[^\w]+|[^\w]+$', '', p).upper() in PRESERVED_ACRONYMS
-                else titlecase(p, callback=_titlecase_callback).capitalize()
-            )
-            for p in parts
-        )
-    return None
-
-
-def capitalize_text_string(text: str) -> str:
-    if not text:
-        return ""
-    val = str(text).strip()
-    if not val:
-        return ""
-    return titlecase(val, callback=_titlecase_callback)
-
+from Commissioner.census_consts import get_census_era  # noqa: E402
+from Commissioner.normalization import capitalize_text_string  # noqa: E402
 
 FIELD_MAPS_DIR = Path(__file__).resolve().parent / "field_maps"
 
@@ -69,14 +38,6 @@ FIELD_MAPS_DIR = Path(__file__).resolve().parent / "field_maps"
 # and Archivist are independently standalone-runnable tools (see the design spec) and
 # this is a small, stable piece of US census history, not something either tool "owns"
 # in a way that would make importing across tool boundaries appropriate.
-
-
-def get_census_era(year: int) -> str:
-    if year <= 1840:
-        return "pre1850"
-    if year <= 1870:
-        return "heuristic"
-    return "relationship"
 
 
 def load_field_map(name: str) -> Dict[str, Dict[str, str]]:

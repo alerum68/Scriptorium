@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union, cast
 
 import pandas as pd
+from Commissioner.census_consts import get_census_era
 import Utils
 
 CellValue = Union[str, int, float, bool, None]
@@ -67,15 +68,6 @@ HUSBAND_CHILD_AGE_GAP = (14, 60)
 WIFE_CHILD_AGE_GAP = (12, 50)
 REVIEW_THRESHOLD = 0.6
 
-
-def get_census_era(year: int) -> str:
-    if year <= 1840:
-        return "pre1850"
-    if year <= 1870:
-        return "heuristic"
-    return "relationship"
-
-
 CENSUS_TEMPLATES = {47: {"schedule": False, "ed": False, "household": False},   # 1790-1840 (Filmed)
                     48: {"schedule": True, "ed": False, "household": True},    # 1850-1870 (Filmed)
                     49: {"schedule": True, "ed": True, "household": True}}     # 1880-1930 (Filmed), reused 1940+
@@ -107,8 +99,9 @@ def get_gender(val: Union[pd.Series, dict, CellValue]) -> str:
         return "F"
     return "U"
 
-
 # noinspection DuplicatedCode
+
+
 def evaluate_task_priority(task_note: str) -> tuple:
     """Evaluates task notes for keywords to assign a priority, color code, and dynamic folder name."""
     task_note_lower = f"{task_note}".lower()
@@ -155,8 +148,9 @@ def _gedcom_wrapped_lines(level: int, tag: str, text: str, max_len: int = 200) -
                 lines.append(f"{level + 1} CONC {chunk}")
     return lines
 
-
 # noinspection DuplicatedCode
+
+
 def _rmst_element_to_gedcom(elem: etree.Element) -> List[str]:
     """Emits _STMPLT/FOOTNOTE/BIBLIO/DISPLAY/ISDETAIL/LONGHINT - RM's real tag
     vocabulary, not the _SRCTEMPLATE/FOOT/BIBL/DISP/DETL/LHNT names RM doesn't
@@ -243,10 +237,11 @@ def get_source_templates(template_ids_used: set) -> List[str]:
             lines.extend(t_lines)
     return lines
 
-
 # ==========================================
 # CENSUS FLAVOR: HOUSEHOLD GROUPING
 # ==========================================
+
+
 def get_age(row: pd.Series) -> float:
     def parse_num(val: CellValue) -> Optional[float]:
         try:
@@ -784,10 +779,11 @@ def parse_household_relational(
 
     return resolve_cross_family_links(units, unrelated, flags)
 
-
 # ==========================================
 # CENSUS FLAVOR: GEDCOM EMISSION
 # ==========================================
+
+
 def get_row_val(r: pd.Series, cols: List[str], default: str) -> str:
     if default:
         return default

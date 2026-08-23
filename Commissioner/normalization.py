@@ -5,8 +5,10 @@ record/role identity derivation that both sources need applied the same way so A
 sees one consistent shape regardless of provenance.
 """
 
+from __future__ import annotations
+
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 
 from titlecase import titlecase
 
@@ -27,11 +29,13 @@ def _titlecase_callback(word: str, **_kwargs) -> Optional[str]:
     return None
 
 
-def capitalize_text_string(text: str) -> str:
-    if not text:
+def capitalize_text_string(text: Any) -> str:
+    """Format string to Title Case using the titlecase library while preserving
+    genealogical acronyms (HBC, NWT, etc.) and handling nulls/empty strings safely."""
+    if text is None:
         return ""
     val = str(text).strip()
-    if not val:
+    if not val or val.lower() in ("null", "none"):
         return ""
     return titlecase(val, callback=_titlecase_callback)
 
@@ -115,3 +119,44 @@ def derive_role_semantic(role_number: Optional[str],
     """Looks up a participant's role_semantic from their already-resolved role_number."""
     role = roles_table.get(role_number) if role_number else None
     return role.get("semantic") if role else None
+
+
+def normalize_sex_code(raw: Optional[str], default: str = "") -> str:
+    """Normalize a raw sex / gender string into standard 'M', 'F', or fallback."""
+    if not raw:
+        return default
+    text = str(raw).strip().lower()
+    if text.startswith("f"):
+        return "F"
+    if text.startswith("m"):
+        return "M"
+    return default
+
+
+def normalize_enum(
+    raw: Optional[str],
+    allowed: Dict[str, Any] | Iterable[str],
+    default: Optional[Any] = None,
+) -> Optional[Any]:
+    """Normalize a raw string against an allowed set or mapping (case-insensitive)."""
+    if not raw:
+        return default
+    val = str(raw).strip().lower()
+    if isinstance(allowed, dict):
+        mapping = {str(k).strip().lower(): v for k, v in allowed.items()}
+        return mapping.get(val, default)
+    mapping = {str(item).strip().lower(): item for item in allowed}
+    return mapping.get(val, default)
+
+
+__all__ = [
+    "PRESERVED_ACRONYMS",
+    "MONTH_NAMES",
+    "capitalize_text_string",
+    "parse_date_to_iso_format",
+    "derive_record_identity",
+    "derive_role_number",
+    "derive_role_semantic",
+    "normalize_sex_code",
+    "normalize_enum",
+]

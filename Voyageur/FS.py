@@ -179,12 +179,7 @@ def split_name_and_dit(full: str) -> Tuple[str, str, Optional[str]]:
 
 
 def normalize_sex_code(raw: str) -> str:
-    raw = (raw or "").strip().lower()
-    if raw.startswith("f"):
-        return "F"
-    if raw.startswith("m"):
-        return "M"
-    return ""
+    return normalization.normalize_sex_code(raw)
 
 
 def build_participant(role_name: str, raw_name: str, sex: str,

@@ -7,12 +7,21 @@ import datetime
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 from dotenv import load_dotenv
-from titlecase import titlecase
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from Commissioner.textutils import clean_text  # noqa: E402
+from Commissioner.normalization import (  # noqa: E402
+    capitalize_text_string as _norm_capitalize_text_string,
+)
 
 # A raw scalar value as read from a JSON field or DataFrame cell.
 CellValue = Union[str, int, float, bool, None]
@@ -136,31 +145,12 @@ def clean_val(val: CellValue) -> str:
         return ""
     if isinstance(val, float) and val.is_integer():
         return str(int(val))
-    val_str = re.sub(r' +', ' ',
-                     str(val).replace('\xa0', ' ').replace('​', '').replace(' ', ' ')
-                     ).strip()
+    val_str = clean_text(val)
     return "" if val_str.lower() in ["null", "none", ""] else val_str
 
 
 _PLACE_QUALIFIER_RE = re.compile(
     r'^(?:near|around|about|approximately|close to|in the vicinity of)\s+', re.IGNORECASE)
-
-PRESERVED_ACRONYMS = {"HBC", "NWT", "USA", "NWMP", "RCMP", "UK", "US", "ED", "PID", "RM", "FTM"}
-
-
-# noinspection DuplicatedCode
-def _titlecase_callback(word: str, **_kwargs) -> Optional[str]:
-    w_clean = re.sub(r'^[^\w]+|[^\w]+$', '', word)
-    if w_clean.upper() in PRESERVED_ACRONYMS:
-        return word.replace(w_clean, w_clean.upper())
-    if "-" in word:
-        parts = word.split("-")
-        return "-".join(
-            (p.upper() if re.sub(r'^[^\w]+|[^\w]+$', '', p).upper() in PRESERVED_ACRONYMS
-             else titlecase(p, callback=_titlecase_callback).capitalize())
-            for p in parts
-        )
-    return None
 
 
 def capitalize_text_string(text: CellValue) -> str:
@@ -169,7 +159,7 @@ def capitalize_text_string(text: CellValue) -> str:
     val = clean_val(text)
     if not val:
         return ""
-    return titlecase(val, callback=_titlecase_callback)
+    return _norm_capitalize_text_string(val)
 
 
 def clean_place(val: CellValue) -> str:

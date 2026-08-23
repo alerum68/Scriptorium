@@ -107,13 +107,14 @@ def archivist(tmp_path_factory):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     env_keys = ("GENEALOGY_DIR", "GEDCOM_OUTPUT_PATH", "GEDCOM_OUTPUT_NAME",
-                "GEDCOM_OUTPUT_MODE", "MEDIA_DIR", "RM_DIR", "FTM_DIR")
+                "GEDCOM_OUTPUT_MODE", "MEDIA_DIR", "RM_DIR", "FTM_DIR",
+                "RESEARCHER_NAME", "ORG_NAME")
     saved_env = {k: os.environ.get(k) for k in env_keys}
     os.environ["GENEALOGY_DIR"] = str(genealogy)
     os.environ["GEDCOM_OUTPUT_PATH"] = str(out_dir)
     os.environ["GEDCOM_OUTPUT_NAME"] = "golden.ged"
     os.environ["GEDCOM_OUTPUT_MODE"] = "Both"
-    for k in ("MEDIA_DIR", "RM_DIR", "FTM_DIR"):
+    for k in ("MEDIA_DIR", "RM_DIR", "FTM_DIR", "RESEARCHER_NAME", "ORG_NAME"):
         os.environ[k] = ""
 
     archivist_dir = REPO_ROOT / "Archivist"
@@ -158,6 +159,8 @@ def _reset_builder_state(archivist_ns):
     archivist_ns.General.GENERAL_CONFIG.clear()
     archivist_ns.General.GENERAL_CONFIG.update(archivist_ns.general_config_pristine)
     archivist_ns.Utils.GEDCOM_OUTPUT_NAME = "golden.ged"
+    archivist_ns.Utils.RESEARCHER = ""
+    archivist_ns.Utils.ORG_NAME = ""
 
 
 # ---------------------------------------------------------------------------

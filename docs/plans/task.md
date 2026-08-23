@@ -27,3 +27,13 @@
 | 5. CI wiring: run the test suite on push/PR | Done | Added `.github/workflows/test.yml` (windows-latest, mirrors `build.yml`'s proven dependency install). Previously no workflow ran `pytest` at all — `lint.yml` only runs bare `pycodestyle`, not this repo's own flake8 gate. |
 | 6. Fix dead `review_reason` assertions in `test_crosscheck.py` | Done | Leftover from Phase 1's BUG-1 fix (list &rarr; string); two tests still asserted `any(... for r in result["review_reason"])`, which iterates characters of a string and can never pass. |
 | 7. flake8 gate cleanup | Done | Fixed 4 pre-existing violations blocking `test_code_quality_flake8` (`Antiquarian.py` E303, `Archivist/General.py` + `Voyageur/FS.py` E302, `Voyageur/A.py` E402 missing noqa) plus a new E501/E131 in the golden test file itself. Added `flake8` to `requirements.txt` — the gate test shells out to it but it was never installed anywhere, so it could never run.
+
+# Ox Alpha Audit: Phase 3 (Shared Core Deduplication)
+
+| Task | Status | Description |
+| --- | --- | --- |
+| DUP-1 to DUP-4: Text Utils | Done | Deduplicated string cleaners, whitespace normalizers, and snake_case converters into Commissioner/textutils.py. |
+| DUP-5: Normalizers | Done | Deduplicated 
+ormalize_enum and 
+ormalize_sex_code into Commissioner/normalization.py. |
+| DUP-6: get_census_era | Done | Extracted standalone get_census_era into Commissioner/census_consts.py. |
