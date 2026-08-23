@@ -54,3 +54,5 @@ worktrees/
 /scripts/opencode-serve.log
 /scripts/opencode-serve.ps1
 /scripts/
+
+.worktrees/
