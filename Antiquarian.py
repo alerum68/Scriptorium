@@ -105,6 +105,35 @@ ARG_SPECS: Dict[Tuple[str, str], Callable[[Dict[str, "ctk.StringVar"], "ctk.Stri
     ("VOYAGEUR_SCRIPT", "LAC"): _args_voyageur_lac,
 }
 
+# ARCH-4: which ENV_TARGETS subfolder owns each script's tool-specific settings. A launched
+# child process's env should carry GLOBAL_VARS (every tool needs GENEALOGY_DIR etc.) plus
+# only its own tool's fields - not every GUI StringVar from every unrelated tool.
+SCRIPT_ENV_SUBFOLDERS: Dict[str, Optional[str]] = {
+    "ANALYSIS_SCRIPT": "Paleographer",
+    "ARCHIVIST_SCRIPT": "Archivist",
+    "VOYAGEUR_SCRIPT": "Voyageur",
+    "REGISTRAR_SCRIPT": "Registrar",
+    "GAZETTEER_SCRIPT": "Gazetteer",
+    "PDFIX_SCRIPT": "PDFix",
+    "CLEANUP_CACHE_SCRIPT": "Paleographer",
+    "AGY_TEST_SCRIPT": None,
+}
+
+
+def _curated_env_vars(owned_subfolder: Optional[str], string_vars: Dict[str, "ctk.StringVar"]) -> Dict[str, str]:
+    """Selects the subset of string_vars a script actually owns via ENV_TARGETS: every
+    GLOBAL_VARS key, plus owned_subfolder's own keys. A script with no ENV_TARGETS entry
+    (owned_subfolder is None and not itself GLOBAL_VARS's marker) gets only globals."""
+    curated: Dict[str, str] = {}
+    for category_dict, subfolder in ENV_TARGETS:
+        if subfolder is not None and subfolder != owned_subfolder:
+            continue
+        for fields in category_dict.values():
+            for key in fields:
+                if key in string_vars:
+                    curated[key] = str(string_vars[key].get())
+    return curated
+
 
 def get_config_dir() -> Path:
     if (APP_DIR / ".portable").exists():
@@ -1993,8 +2022,10 @@ class Antiquarian(ctk.CTk):
         self.run_tooltip.text = f"Running: {script_display_name}"
         self._expand_console()
 
+        owned_subfolder = SCRIPT_ENV_SUBFOLDERS.get(script_key)
+
         run_env = os.environ.copy()
-        run_env.update({k: str(v.get()) for k, v in self.string_vars.items()})
+        run_env.update(_curated_env_vars(owned_subfolder, self.string_vars))
 
         # --- DYNAMIC PATH RESOLUTION ---
         def resolve_path(base, sub):
@@ -2016,11 +2047,14 @@ class Antiquarian(ctk.CTk):
 
         env_overrides = {}
 
-        # Pre-resolve these specific nested directory variables
-        nested_dir_keys = [("REGISTRAR_RM_DATABASE", full_rm_dir), ("GAZETTEER_RM_DATABASE", full_rm_dir),
-                           ("PDFIX_TARGET_DIR", full_media_dir)]
-        for key, base_dir in nested_dir_keys:
-            if key in self.string_vars:
+        # Pre-resolve these specific nested directory variables - each only for the tool
+        # that owns it (ARCH-4), so e.g. a Voyageur run's env doesn't carry Registrar's
+        # or PDFix's resolved paths.
+        nested_dir_keys = [("REGISTRAR_RM_DATABASE", "Registrar", full_rm_dir),
+                           ("GAZETTEER_RM_DATABASE", "Gazetteer", full_rm_dir),
+                           ("PDFIX_TARGET_DIR", "PDFix", full_media_dir)]
+        for key, owner, base_dir in nested_dir_keys:
+            if owner == owned_subfolder and key in self.string_vars:
                 env_overrides[key] = resolve_path(base_dir, self.string_vars[key].get())
 
         # Inject runtime overrides. Downstream modules (Paleographer/Archivist)
