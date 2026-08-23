@@ -1,3 +1,4 @@
+import functools
 import os
 from datetime import date
 from pathlib import Path
@@ -200,12 +201,16 @@ def _build_registry(pmt_dir: Path = PMT_DIR) -> Dict[str, _DocumentTypeSchema]:
     return registry
 
 
-_REGISTRY: Dict[str, _DocumentTypeSchema] = _build_registry()
+@functools.lru_cache(maxsize=1)
+def _get_registry() -> Dict[str, _DocumentTypeSchema]:
+    # Lazy: importing Commissioner must not risk crashing unrelated tools on a bad
+    # .pmt file. The registry is only built on first actual access, cached after that.
+    return _build_registry()
 
 
 def _get_schema(document_type: str) -> _DocumentTypeSchema:
     try:
-        return _REGISTRY[document_type]
+        return _get_registry()[document_type]
     except KeyError:
         raise UnknownDocumentTypeError(
             f"Unknown document_type {document_type!r}; no matching .pmt file found"
@@ -213,7 +218,7 @@ def _get_schema(document_type: str) -> _DocumentTypeSchema:
 
 
 def get_document_types() -> List[str]:
-    return list(_REGISTRY.keys())
+    return list(_get_registry().keys())
 
 
 def get_valid_roles(document_type: str) -> FrozenSet[str]:

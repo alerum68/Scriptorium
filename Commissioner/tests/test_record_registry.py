@@ -223,7 +223,7 @@ def test_closed_is_the_default_role_validation_mode_when_key_absent(tmp_path):
 def test_validate_role_name_is_a_noop_for_open_mode_document_types(tmp_path, monkeypatch):
     (tmp_path / "OpenFixture.pmt").write_text(OPEN_ROLE_PMT, encoding="utf-8")
     fixture_registry = _build_registry(tmp_path)
-    monkeypatch.setattr(record_registry, "_REGISTRY", fixture_registry)
+    monkeypatch.setattr(record_registry, "_get_registry", lambda: fixture_registry)
 
     validate_role_name("OpenFixture", "TotallyUnknownRole")
     validate_role_name("OpenFixture", "Head")
@@ -236,7 +236,7 @@ def test_validate_role_name_still_rejects_unknown_role_for_closed_mode_document_
         UNKNOWN_TYPE_PMT.replace("type: nonsense", "type: string"), encoding="utf-8"
     )
     fixture_registry = _build_registry(tmp_path)
-    monkeypatch.setattr(record_registry, "_REGISTRY", fixture_registry)
+    monkeypatch.setattr(record_registry, "_get_registry", lambda: fixture_registry)
 
     with pytest.raises(InvalidRoleError, match="Coordinator"):
         validate_role_name("Fixture", "Coordinator")
