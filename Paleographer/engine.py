@@ -47,7 +47,6 @@ from Commissioner.record_registry import (  # noqa: E402
 )
 
 DEFAULT_TYPE = "Parish.pmt"
-FACT_TYPES_PATH = Path(__file__).resolve().parent.parent / "Commissioner" / "FactTypes.json"
 
 # A PDF with more pages than this routes through the Batch API instead of the
 # synchronous path; a single-page image never crosses it.

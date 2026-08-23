@@ -73,7 +73,6 @@ from Commissioner.winio import (  # noqa: E402
 )
 
 ANTIQUARIAN_DIR = Path(__file__).resolve().parent.parent
-FACT_TYPES_PATH = ANTIQUARIAN_DIR / "Commissioner" / "FactTypes.json"
 PARISH_PMT_PATH = ANTIQUARIAN_DIR / "Paleographer" / "prompts" / "Parish.pmt"
 
 # ==========================================

@@ -18,6 +18,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from Commissioner.envkit import load_tool_env  # noqa: E402
+from Commissioner.fact_registry import export_fact_types_json  # noqa: E402
 from Commissioner.textutils import clean_text  # noqa: E402
 from Commissioner.normalization import (  # noqa: E402
     capitalize_text_string as _norm_capitalize_text_string,
@@ -119,8 +120,10 @@ def resolve_source_id(record_type_name: str, collection_name: str = "") -> int:
 # ==========================================
 # FACT TYPES
 # ==========================================
-with open(Path(__file__).resolve().parent.parent / "Commissioner" / "FactTypes.json", "r", encoding="utf-8") as _fact_types_file:  # noqa: E501
-    FACT_TYPES = json.load(_fact_types_file)
+# ARCH-5: Commissioner.models.FACT_DEFINITIONS is the sole source of truth; FactTypes.json
+# on disk is only a generated export (see fact_registry.export_fact_types_json and its
+# CI parity guardrail in tests/test_ci_parity.py) kept for external/legacy reference.
+FACT_TYPES = export_fact_types_json()
 
 
 def get_event_gedcom_tag(event_type: str) -> str:
