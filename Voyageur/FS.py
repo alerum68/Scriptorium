@@ -783,6 +783,7 @@ def normalize_familysearch_census_gather(raw_census: dict, collection_title: str
 # ==========================================
 GATHER_JSON_TIMEOUT_SECONDS = 30 * 60
 
+
 def wait_for_final_json_event_with_timeout(downloads_dir: Path, json_prefix: str, label: str) -> Path:
     result: list = [None]
     error: list = [None]

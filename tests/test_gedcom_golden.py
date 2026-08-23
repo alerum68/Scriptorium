@@ -225,7 +225,9 @@ def test_gedcom_matches_golden(fixture_path, flavor, archivist, tmp_path):
     expected = golden.read_text(encoding="utf-8")
     if expected != actual:
         pytest.fail(
-            f"GEDCOM output for {fixture_path.name} drifted from its golden snapshot.\n" + _diff_snippet(expected, actual) + "\nIf this change is intentional, re-run with ANT_UPDATE_GOLDEN=1 "
+            f"GEDCOM output for {fixture_path.name} drifted from its golden snapshot.\n"
+            + _diff_snippet(expected, actual)
+            + "\nIf this change is intentional, re-run with ANT_UPDATE_GOLDEN=1 "
               "and commit the updated snapshot."
         )
 

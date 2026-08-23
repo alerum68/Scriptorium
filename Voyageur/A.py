@@ -15,7 +15,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from Commissioner.envkit import load_tool_env  # noqa: E402
 
-from _gather_helpers import (
+from _gather_helpers import (  # noqa: E402
     cleanup_checkpoint_files,
     extract_census_image_routing_fields,
     find_orphaned_gather_runs,

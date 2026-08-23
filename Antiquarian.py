@@ -2102,7 +2102,6 @@ class Antiquarian(ctk.CTk):
                     self.active_process.terminate()
                     self.active_process.wait(timeout=2)
 
-
             if self.active_process.returncode == 0:
                 self.console.put(f"\n[System] {script_name} finished successfully!\n")
                 succeeded = True

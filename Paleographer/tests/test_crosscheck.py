@@ -97,7 +97,7 @@ def test_own_pid_resolution_fails_appends_review_reason(paleographer_module, mon
     result = module.cross_check_claim_record(record, {"cookie": "value"}, "media")
 
     assert result["lac_pid"] == "1502188"
-    assert any("failed to fetch own PID 1502188" in r for r in result["review_reason"])
+    assert "failed to fetch own PID 1502188" in result["review_reason"]
 
 
 def test_related_pid_search_finds_results_and_appends_source_documents(paleographer_module, monkeypatch):
@@ -136,4 +136,4 @@ def test_search_auth_error_breaks_loop_with_review_reason(paleographer_module, m
     result = module.cross_check_claim_record(record, {"cookie": "value"}, "media")
 
     assert call_count["n"] == 1
-    assert any("search cookie expired/invalid" in r for r in result["review_reason"])
+    assert "search cookie expired/invalid" in result["review_reason"]
