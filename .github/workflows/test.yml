@@ -26,4 +26,5 @@ jobs:
           node-version: 20
 
       - name: Run JS test suite
+        shell: bash
         run: node --test Voyageur/tests/js/*.mjs
