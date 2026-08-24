@@ -38,7 +38,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from PDFix.PDFix import optimize_pdf, COMPRESSION_PARAMS  # noqa: E402
-from AntiquarianMCP import agy_client  # noqa: E402
+from AgyCli import agy_client  # noqa: E402
 from Commissioner.models import FACT_DEFINITIONS  # noqa: E402
 from Commissioner.record_registry import (  # noqa: E402
     load_pmt_parts,

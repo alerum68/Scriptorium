@@ -42,7 +42,7 @@ Tests live in dedicated `tests/` directories within each module:
 - `PDFix/tests/`
 - `Paleographer/tests/`
 - `Registrar/tests/`
-- `AntiquarianMCP/tests/`
+- `AgyCli/tests/`
 - `Voyageur/tests/`
 
 ### Guidelines

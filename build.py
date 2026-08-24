@@ -45,7 +45,7 @@ def build():
         "--hidden-import", "Paleographer.Paleographer",
         "--hidden-import", "Paleographer.Extract",
         "--hidden-import", "Paleographer.CacheCleanup",
-        "--hidden-import", "AntiquarianMCP.test_agy_connection",
+        "--hidden-import", "AgyCli.test_agy_connection",
         "--hidden-import", "Voyageur.FS",
         "--hidden-import", "Voyageur.LAC",
         "--hidden-import", "Voyageur.A",

@@ -50,7 +50,7 @@ SCRIPT_PATHS = {
     "GAZETTEER_SCRIPT": "Gazetteer/Gazetteer.py",
     "PDFIX_SCRIPT": "PDFix/PDFix.py",
     "CLEANUP_CACHE_SCRIPT": "Paleographer/CacheCleanup.py",
-    "AGY_TEST_SCRIPT": "AntiquarianMCP/test_agy_connection.py",
+    "AGY_TEST_SCRIPT": "AgyCli/test_agy_connection.py",
 }
 
 

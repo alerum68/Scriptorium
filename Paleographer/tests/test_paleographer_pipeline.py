@@ -551,7 +551,7 @@ def test_page_continuation_saves_leftover_when_nothing_continues_it(tmp_path, mo
 # AGY ENGINE PIPELINE (EXTRACTION_ENGINE=agy)
 # ==========================================
 # agy_engine.call_agy_extract/rasterize_pdf_to_images are monkeypatched here - the
-# subprocess layer itself is already covered by AntiquarianMCP/tests/test_agy_client.py
+# subprocess layer itself is already covered by AgyCli/tests/test_agy_client.py
 # and Paleographer/tests/test_agy_engine.py. This is about Paleographer.py's own
 # orchestration (file classification, finalize_page_data, tag_document_metadata,
 # save_master_db, cost accounting) working correctly for the agy engine, for both an
@@ -604,7 +604,7 @@ def _import_paleographer_fresh_agy(monkeypatch, tmp_path, env_overrides, fake_st
     sys.modules.pop("Extract", None)
     module = importlib.import_module("Extract")
 
-    from AntiquarianMCP import agy_client
+    from AgyCli import agy_client
 
     # main()'s startup auth check - never make a real subprocess call in a unit test.
     monkeypatch.setattr(agy_client, "check_or_prompt_auth", lambda *a, **k: True)

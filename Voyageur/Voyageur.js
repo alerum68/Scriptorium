@@ -773,7 +773,6 @@
         let accumulatedPages = [];
         let batchPageCounter = 1;
         let seenPids = new Set();
-        let lastPageSignature = "INITIAL_STATE_NOT_SET";
         let firstPagePlace = null;
         let pagesNeedingRetry = [];
         let inRetryPhase = false;
@@ -1537,7 +1536,6 @@
                 batchPageCounter = 1;
                 firstPagePlace = null;
                 pagesNeedingRetry = [];
-                lastPageSignature = "INITIAL_STATE_NOT_SET";
             }
             resumingFromReload = false;
 

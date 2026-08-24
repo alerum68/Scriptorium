@@ -24,7 +24,7 @@ def test_code_quality_flake8():
         "PDFix",
         "Registrar",
         "Gazetteer",
-        "AntiquarianMCP",
+        "AgyCli",
         "Antiquarian.py",
         "tests",
     ]

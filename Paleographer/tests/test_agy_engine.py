@@ -2,7 +2,7 @@
 Tests for agy_engine.py. agy_client.call_agy_structured is monkeypatched throughout -
 these tests are about agy_engine's own scratch-dir staging, retry policy, and cost
 adaptation, not the subprocess layer (already covered in
-AntiquarianMCP/tests/test_agy_client.py). rasterize_pdf_to_images is tested against a
+AgyCli/tests/test_agy_client.py). rasterize_pdf_to_images is tested against a
 real, tiny, locally-generated PDF (via PyMuPDF, already a project dependency) since
 that logic is cheap to exercise for real rather than mock.
 """
@@ -15,7 +15,7 @@ from PIL import Image
 
 # noinspection PyUnresolvedReferences
 import agy_engine
-from AntiquarianMCP import agy_client
+from AgyCli import agy_client
 
 SCHEMA = {"type": "object", "properties": {}}
 

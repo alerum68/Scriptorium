@@ -22,11 +22,11 @@ from google import genai
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# Add repo root to sys.path to allow absolute imports for AntiquarianMCP.
+# Add repo root to sys.path to allow absolute imports for AgyCli.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
-from AntiquarianMCP import agy_client  # noqa: E402
+from AgyCli import agy_client  # noqa: E402
 
 from Commissioner import normalization  # noqa: E402
 from Commissioner.envkit import load_tool_env  # noqa: E402

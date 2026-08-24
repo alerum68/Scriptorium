@@ -1,5 +1,5 @@
 """
-AntiquarianMCP: safe, synchronous Google AGY CLI (agy) invocation.
+AgyCli: safe, synchronous Google AGY CLI (agy) invocation.
 
 A generic, domain-agnostic library any Antiquarian tool can use to call agy - the
 subscription-covered CLI backend for AI Assistant, distinct from the metered google-genai API

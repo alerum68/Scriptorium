@@ -1,7 +1,7 @@
 """
 Paleographer-specific glue for the agy (AGY CLI) extraction backend.
 
-Domain-specific counterpart to AntiquarianMCP/agy_client.py's generic, headless "safely
+Domain-specific counterpart to AgyCli/agy_client.py's generic, headless "safely
 call agy" primitives: this module knows about Paleographer's own scratch-dir staging,
 PDF rasterization, retry policy, and usage/cost adaptation, but delegates the actual
 subprocess call to agy_client. Never talks to Google's genai SDK - engine.py's
@@ -26,7 +26,7 @@ import engine
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
-from AntiquarianMCP import agy_client  # noqa: E402
+from AgyCli import agy_client  # noqa: E402
 
 # Paleographer's own default - passed explicitly to agy_client on every call, never
 # left implicit. Confirmed live that agy's own default (when --model is omitted) is a

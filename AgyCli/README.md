@@ -1,4 +1,4 @@
-# AntiquarianMCP
+# AgyCli
 
 A generic, reusable, **synchronous** library for safely calling Google's AGY
 CLI (`agy`) from any Antiquarian tool. Right now Paleographer's `agy_engine.py` is the
@@ -7,11 +7,11 @@ genealogy - any future Antiquarian tool that wants to call `agy` can import it d
 
 ## Not an MCP server
 
-Despite the name (chosen to echo the separate, general-purpose `ai-research-mcp`
-tool below), this is a **plain importable Python package, not an MCP server**.
-Paleographer runs as a standalone subprocess launched by Antiquarian.py's GUI with no
-MCP client present at runtime, so a real MCP server would be unreachable from it. The
-name is a naming convention, not a protocol claim.
+This is a **plain importable Python package, not an MCP server** - it was
+previously named `AntiquarianMCP`, which implied otherwise (see below) and was
+renamed to `AgyCli` for that reason. Paleographer runs as a standalone
+subprocess launched by Antiquarian.py's GUI with no MCP client present at
+runtime, so a real MCP server would be unreachable from it.
 
 ## Relationship to ai-research-mcp
 
@@ -42,7 +42,7 @@ for both.
    agy --help
    ```
 2. **Authenticate.** Use Antiquarian's **Test Agy Connection** button (Global Settings,
-   next to the Extraction Engine selector), or run `AntiquarianMCP/test_agy_connection.py`
+   next to the Extraction Engine selector), or run `AgyCli/test_agy_connection.py`
    directly. This is the one deliberately-interactive step - if `agy` isn't already
    signed in, it may need to open a browser for Google sign-in.
 
