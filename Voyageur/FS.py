@@ -67,6 +67,7 @@ from Commissioner.envkit import load_tool_env  # noqa: E402
 from Commissioner.models import FACT_DEFINITIONS  # noqa: E402
 from Commissioner.record_registry import load_pmt_front_matter  # noqa: E402
 from Commissioner.textutils import sanitize_image_filename as sanitize_item_id_filename  # noqa: E402
+from Commissioner.textutils import dynamic_zero_pad_all_except  # noqa: E402
 from Commissioner.winio import (  # noqa: E402
     read_text_with_retry as _read_text_with_retry,
     unlink_with_retry as _unlink_with_retry,
@@ -914,6 +915,7 @@ def main() -> dict:
     if on_collision == "skip" and final_json.exists():
         json_status = "skipped"
     else:
+        dynamic_zero_pad_all_except(final_data)
         final_json.write_text(json.dumps(final_data, indent=2, ensure_ascii=False), encoding="utf-8")
         json_status = "moved"
     _unlink_with_retry(raw_json_file)

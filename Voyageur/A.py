@@ -14,6 +14,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from Commissioner.envkit import load_tool_env  # noqa: E402
+from Commissioner.textutils import dynamic_zero_pad_all_except  # noqa: E402
 
 from _gather_helpers import (  # noqa: E402
     cleanup_checkpoint_files,
@@ -239,6 +240,7 @@ def main() -> Path:
                 final_json.replace(new_final_json)
                 final_json = new_final_json
 
+        dynamic_zero_pad_all_except(normalized)
         with open(final_json, "w", encoding="utf-8") as f:
             json.dump(normalized, f, indent=2, ensure_ascii=False)
     else:
