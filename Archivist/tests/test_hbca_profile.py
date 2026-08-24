@@ -57,7 +57,8 @@ HBCA_SAMPLE_DATA = {
 
 def test_hbca_profile_dynamic_source_id_and_template_id():
     profile = HBCA.HBCAProfile()
-    assert profile.dynamic_source_id("1") == "@S10009@"
+    cfg = General.GeneralRunConfig(profile=profile)
+    assert profile.dynamic_source_id("1", cfg) == "@S10009@"
     assert profile.citation_template_id(HBCA_SAMPLE_REC, "1") == 10009
 
 
@@ -95,7 +96,8 @@ def test_hbca_profile_source_quality_reduced_for_bio_sheet():
 def test_hbca_profile_citation_detail_fields_rm():
     profile = HBCA.HBCAProfile()
     part = HBCA_SAMPLE_REC["participants"][0]  # type: ignore
-    fields = profile.citation_detail_fields(HBCA_SAMPLE_REC, part, "1", "1", "RM")
+    cfg = General.GeneralRunConfig(profile=profile)
+    fields = profile.citation_detail_fields(HBCA_SAMPLE_REC, part, "1", "1", "RM", cfg)
     fields_str = "\n".join(fields)
 
     assert "NAME Page" in fields_str
@@ -130,7 +132,8 @@ def test_hbca_archivist_dispatcher_resolves_hbca_profile():
 
 def test_hbca_resolve_source_templates():
     profile = HBCA.HBCAProfile()
-    sources = profile.resolve_source_templates(HBCA_SAMPLE_DATA, "RM")
+    cfg = General.GeneralRunConfig(profile=profile)
+    sources = profile.resolve_source_templates(HBCA_SAMPLE_DATA, "RM", cfg)
     sources_str = "\n".join(sources)
 
     assert "0 @S10009@ SOUR" in sources_str
@@ -142,8 +145,8 @@ def test_hbca_resolve_source_templates():
 
 def test_hbca_build_gedcom_end_to_end():
     profile = HBCA.HBCAProfile()
-    General.set_active_profile(profile)
-    gedcom_text = General.build_gedcom_from_general(HBCA_SAMPLE_DATA, "RM")
+    cfg = General.GeneralRunConfig(profile=profile)
+    gedcom_text = General.build_gedcom_from_general(HBCA_SAMPLE_DATA, "RM", cfg)
 
     assert "0 HEAD" in gedcom_text
     assert "0 @S10009@ SOUR" in gedcom_text
@@ -176,7 +179,9 @@ def test_citation_detail_fields_include_keystone_metadata_when_present():
         },
     }
     part = {"std_given": "Charles", "std_surname": "Adams"}
-    lines = profile.citation_detail_fields(rec, part, page="adams_charles.pdf", vol="", target_software="RM")
+    cfg = General.GeneralRunConfig(profile=profile)
+    lines = profile.citation_detail_fields(rec, part, page="adams_charles.pdf", vol="", target_software="RM",
+                                           cfg=cfg)
     joined = "\n".join(lines)
     assert "1M814" in joined
     assert "SISN%205154" in joined
@@ -186,7 +191,9 @@ def test_citation_detail_fields_degrade_gracefully_without_keystone_records():
     profile = HBCA.HBCAProfile()
     rec = {"type_specific_fields": {"employee_name": "Charles Adams", "hbca_references": ["B.239/k/3"]}}
     part = {"std_given": "Charles", "std_surname": "Adams"}
-    lines = profile.citation_detail_fields(rec, part, page="adams_charles.pdf", vol="", target_software="RM")
+    cfg = General.GeneralRunConfig(profile=profile)
+    lines = profile.citation_detail_fields(rec, part, page="adams_charles.pdf", vol="", target_software="RM",
+                                           cfg=cfg)
     assert any("B.239/k/3" in line for line in lines)
 
 
@@ -195,7 +202,7 @@ def test_hbca_citation_detail_fields_wraps_in_tmplt():
         "employee_name": "John Smith", "hbca_references": ["A.32/1"],
     }}
     part = {"std_given": "John", "std_surname": "Smith"}
-    lines = HBCA.HBCAProfile.citation_detail_fields(rec, part, "1", "1", "RM")
+    lines = HBCA.HBCAProfile.citation_detail_fields(rec, part, "1", "1", "RM", General.GeneralRunConfig())
     assert lines[0] == "3 _TMPLT"
     assert "4 FIELD" in lines
     assert any(ln == "5 NAME SourceDetailPerson" for ln in lines)

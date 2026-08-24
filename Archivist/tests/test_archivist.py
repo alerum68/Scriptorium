@@ -23,12 +23,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+_CFG = General.GeneralRunConfig()
+
 
 def test_generate_uid_same_person_same_page_matches():
     """Baseline: identical record_id/role/page must always collide onto one UID."""
     rec = {"page": "page_001", "record_id": "SCRIP-5473", "participants": [{"role_number": "1"}]}
     part = rec["participants"][0]
-    assert General.generate_uid(rec, part, "1") == General.generate_uid(dict(rec), part, "1")
+    assert General.generate_uid(rec, part, "1", _CFG) == General.generate_uid(dict(rec), part, "1", _CFG)
 
 
 def test_generate_uid_same_record_id_different_page_still_matches():
@@ -40,7 +42,7 @@ def test_generate_uid_same_record_id_different_page_still_matches():
     rec_page_1 = {"page": "page_001", "record_id": "SCRIP-5473", "participants": [part]}
     rec_page_2 = {"page": "page_002", "record_id": "SCRIP-5473", "participants": [part]}
 
-    assert General.generate_uid(rec_page_1, part, "1") == General.generate_uid(rec_page_2, part, "1")
+    assert General.generate_uid(rec_page_1, part, "1", _CFG) == General.generate_uid(rec_page_2, part, "1", _CFG)
 
 
 def test_generate_uid_prefers_lac_pid_over_record_id():
@@ -51,28 +53,17 @@ def test_generate_uid_prefers_lac_pid_over_record_id():
     rec_a = {"page": "page_001", "record_id": "SCRIP-5473", "lac_pid": "1502188", "participants": [part]}
     rec_b = {"page": "page_002", "record_id": "SCRIP-9999", "lac_pid": "1502188", "participants": [part]}
 
-    assert General.generate_uid(rec_a, part, "1") == General.generate_uid(rec_b, part, "1")
+    assert General.generate_uid(rec_a, part, "1", _CFG) == General.generate_uid(rec_b, part, "1", _CFG)
 
 
 def test_get_dynamic_source_id_omits_prefix_for_scrip():
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        assert General.get_dynamic_source_id("3") == "@S003@"
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    assert General.get_dynamic_source_id("3", cfg) == "@S003@"
 
 
 def test_get_dynamic_source_id_keeps_prefix_by_default_for_parish():
-    General.set_active_profile(General.GeneralProfile())
-    orig = General.GENERAL_CONFIG.get('register_source_id')
-    try:
-        General.GENERAL_CONFIG['register_source_id'] = '1042'
-        assert General.get_dynamic_source_id("3") == "@S1042003@"
-    finally:
-        if orig is not None:
-            General.GENERAL_CONFIG['register_source_id'] = orig
-        else:
-            General.GENERAL_CONFIG.pop('register_source_id', None)
+    cfg = General.GeneralRunConfig(register_source_id='1042')
+    assert General.get_dynamic_source_id("3", cfg) == "@S1042003@"
 
 
 def test_run_general_flavor_sets_profile_from_record_type():
@@ -90,7 +81,7 @@ def test_generate_uid_different_record_id_still_differs_without_lac_pid():
     rec_a = {"page": "page_001", "record_id": "SCRIP-5473", "participants": [part]}
     rec_b = {"page": "page_001", "record_id": "SCRIP-9999", "participants": [part]}
 
-    assert General.generate_uid(rec_a, part, "1") != General.generate_uid(rec_b, part, "1")
+    assert General.generate_uid(rec_a, part, "1", _CFG) != General.generate_uid(rec_b, part, "1", _CFG)
 
 
 def test_generate_media_uid_for_path_deterministic_and_path_keyed():
@@ -110,7 +101,7 @@ def test_build_general_citation_page_line_uses_claim_affdt_when_present():
            "type_specific_fields": {"claim_number": "1964", "affidavit_number": "850"},
            "citation_text": "text", "citation_details": "text"}
     part = {"std_given": "Roger", "std_surname": "Letendre", "role_number": "1"}
-    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001")
+    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001", _CFG)
     assert "3 PAGE Claim 1964; Affdt 850, Page 3" in blocks[0]
     assert "Record EVEN-1964" not in blocks[0]
 
@@ -119,7 +110,7 @@ def test_build_general_citation_page_line_falls_back_without_claim_affdt():
     rec = {"page": "3", "record_id": "B-1", "year": "1876",
            "citation_text": "text", "citation_details": "text"}
     part = {"std_given": "Jean", "std_surname": "Gagnon", "role_number": "1"}
-    blocks = General.build_general_citation(rec, part, "BIRT", "1", "M0000000001")
+    blocks = General.build_general_citation(rec, part, "BIRT", "1", "M0000000001", _CFG)
     assert "3 PAGE Page 3, Record B-1" in blocks[0]
 
 
@@ -130,7 +121,7 @@ def test_build_general_citation_single_block_without_source_documents():
     rec = {"page": "1", "record_id": "B-1", "year": "1876",
            "citation_text": "orig text", "citation_details": "eng text"}
     part = {"std_given": "Jean", "std_surname": "Gagnon", "role_number": "1"}
-    blocks = General.build_general_citation(rec, part, "BIRT", "1", "M0000000001")
+    blocks = General.build_general_citation(rec, part, "BIRT", "1", "M0000000001", _CFG)
     assert isinstance(blocks, list)
     assert len(blocks) == 1
     assert "orig text" in blocks[0]
@@ -146,7 +137,7 @@ def test_build_general_citation_collapses_identical_original_and_translation():
            "citation_text": "I, Roger Letendre, do solemnly swear...",
            "citation_details": "I, Roger Letendre, do solemnly swear..."}
     part = {"std_given": "Roger", "std_surname": "Letendre", "role_number": "1"}
-    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001")
+    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001", _CFG)
 
     assert len(blocks) == 1
     assert blocks[0].count("I, Roger Letendre, do solemnly swear") == 1
@@ -163,7 +154,7 @@ def test_build_general_citation_normalization_is_whitespace_only_not_fuzzy():
            "citation_text": "1964\nForm A. (2).\nNORTH-WEST HALFBREED CLAIMS COMMISSION.",
            "citation_details": "Form A. (2). NORTH-WEST HALFBREED CLAIMS COMMISSION. 1964"}
     part = {"std_given": "Roger", "std_surname": "Letendre", "role_number": "1"}
-    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001")
+    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001", _CFG)
 
     assert len(blocks) == 1
     assert "Form A. (2)." in blocks[0]
@@ -177,7 +168,7 @@ def test_build_general_citation_collapses_whitespace_only_reflow():
            "citation_text": "Form A. (2).\nNORTH-WEST HALFBREED CLAIMS COMMISSION.\nBefore me.",
            "citation_details": "Form A. (2). NORTH-WEST HALFBREED CLAIMS COMMISSION. Before me."}
     part = {"std_given": "Roger", "std_surname": "Letendre", "role_number": "1"}
-    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001")
+    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001", _CFG)
 
     assert len(blocks) == 1
     assert "Citation Details:" not in blocks[0]
@@ -189,7 +180,7 @@ def test_build_general_citation_collapses_when_only_one_side_populated():
     rec = {"page": "1", "record_id": "B-1", "year": "1876",
            "citation_text": "", "citation_details": "Only a translation exists here."}
     part = {"std_given": "Roger", "std_surname": "Letendre", "role_number": "1"}
-    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001")
+    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001", _CFG)
 
     assert len(blocks) == 1
     assert "Only a translation exists here." in blocks[0]
@@ -204,7 +195,7 @@ def test_build_general_citation_keeps_both_blocks_for_a_genuine_translation():
            "citation_text": "Je soussigné jure solennellement...",
            "citation_details": "I, the undersigned, do solemnly swear..."}
     part = {"std_given": "Roger", "std_surname": "Letendre", "role_number": "1"}
-    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001")
+    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001", _CFG)
 
     assert len(blocks) == 1
     assert "Je soussigné" in blocks[0]
@@ -216,25 +207,19 @@ def test_build_general_citation_shows_configured_header_labels_when_set():
     """CITATION_DETAIL/CITATION_TEXT are blank by default (no label line) but a user who
     configures them must still see their chosen label prefixed - the "header present" branch
     of General.citation_text_block, uncovered by every other test in this file (which all run
-    against the blank-default GENERAL_CONFIG)."""
-    orig_config = dict(General.GENERAL_CONFIG)
-    try:
-        General.GENERAL_CONFIG['citation_detail'] = "Citation Details:"
-        General.GENERAL_CONFIG['citation_text'] = "Citation Text:"
-        rec = {"page": "1", "record_id": "B-1", "year": "1876",
-               "citation_text": "Je soussigné jure solennellement...",
-               "citation_details": "I, the undersigned, do solemnly swear..."}
-        part = {"std_given": "Roger", "std_surname": "Letendre", "role_number": "1"}
-        blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001")
+    against the blank-default GeneralRunConfig)."""
+    cfg = General.GeneralRunConfig(citation_detail="Citation Details:", citation_text="Citation Text:")
+    rec = {"page": "1", "record_id": "B-1", "year": "1876",
+           "citation_text": "Je soussigné jure solennellement...",
+           "citation_details": "I, the undersigned, do solemnly swear..."}
+    part = {"std_given": "Roger", "std_surname": "Letendre", "role_number": "1"}
+    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001", cfg)
 
-        assert len(blocks) == 1
-        assert "Citation Details:" in blocks[0]
-        assert "Citation Text:" in blocks[0]
-        assert "Je soussigné" in blocks[0]
-        assert "I, the undersigned" in blocks[0]
-    finally:
-        General.GENERAL_CONFIG.clear()
-        General.GENERAL_CONFIG.update(orig_config)
+    assert len(blocks) == 1
+    assert "Citation Details:" in blocks[0]
+    assert "Citation Text:" in blocks[0]
+    assert "Je soussigné" in blocks[0]
+    assert "I, the undersigned" in blocks[0]
 
 
 def test_build_general_citation_one_block_per_source_document():
@@ -245,7 +230,7 @@ def test_build_general_citation_one_block_per_source_document():
          "citation_text": "claimant orig", "citation_details": "claimant eng"},
     ]}
     part = {"std_given": "Roger", "std_surname": "Letendre", "role_number": "1"}
-    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001")
+    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001", _CFG)
 
     assert len(blocks) == 2
     assert "-- Witness Affidavit" in blocks[0]
@@ -272,7 +257,7 @@ def test_build_general_citation_media_only_entry_uses_its_own_path_derived_uid()
         {"document_type": "Scrip Certificate", "media_path": media_path},
     ]}
     part = {"std_given": "Roger", "std_surname": "Letendre", "role_number": "1"}
-    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M_SHEET_UID")
+    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M_SHEET_UID", _CFG)
 
     expected_uid = General.generate_media_uid_for_path(media_path)
     assert f"3 OBJE @{expected_uid}@" in blocks[0]
@@ -295,7 +280,7 @@ def test_build_gedcom_from_general_creates_separate_obje_for_commissioner_media(
             }],
         }],
     }
-    ged = General.build_gedcom_from_general(data, "RM")
+    ged = General.build_gedcom_from_general(data, "RM", _CFG)
 
     expected_uid = General.generate_media_uid_for_path(media_path)
     assert f"0 @{expected_uid}@ OBJE" in ged
@@ -321,7 +306,7 @@ def test_build_general_citation_prefers_lac_asset_id_over_hashed_path():
         {"document_type": "Scrip Certificate", "media_path": media_path, "lac_asset_id": "e011359206"},
     ]}
     part = {"std_given": "Margaret", "std_surname": "Sabiston", "role_number": "1"}
-    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M_SHEET_UID")
+    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M_SHEET_UID", _CFG)
 
     assert "3 OBJE @M011359206@" in blocks[0]
     hashed_uid = General.generate_media_uid_for_path(media_path)
@@ -344,7 +329,7 @@ def test_build_gedcom_from_general_uses_lac_asset_id_for_obje_when_present():
             }],
         }],
     }
-    ged = General.build_gedcom_from_general(data, "RM")
+    ged = General.build_gedcom_from_general(data, "RM", _CFG)
 
     assert "0 @M011359206@ OBJE" in ged
     assert f"1 FILE {media_path}" in ged
@@ -352,39 +337,33 @@ def test_build_gedcom_from_general_uses_lac_asset_id_for_obje_when_present():
 
 
 def test_build_individual_scrip_desc_line_groups_claim_affidavit_scrip_together():
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        rec = {"event_type": "Scrip", "page": "1", "record_id": "SCRIP-5473", "event_place": "Winnipeg",
-               "type_specific_fields": {
-                   "claim_number": "3126", "affidavit_number": "5473",
-                   "scrip_number": "12761", "scrip_amount": "$160", "claim_basis": "Half-breed Head",
-               },
-               "participants": [make_participant("primary", given="Roger", surname="Letendre")]}
-        primary = rec["participants"][0]
-        lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM")
-        joined = "\n".join(lines)
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    rec = {"event_type": "Scrip", "page": "1", "record_id": "SCRIP-5473", "event_place": "Winnipeg",
+           "type_specific_fields": {
+               "claim_number": "3126", "affidavit_number": "5473",
+               "scrip_number": "12761", "scrip_amount": "$160", "claim_basis": "Half-breed Head",
+           },
+           "participants": [make_participant("primary", given="Roger", surname="Letendre")]}
+    primary = rec["participants"][0]
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM", cfg)
+    joined = "\n".join(lines)
 
-        assert "1 EVEN Claim: 3126; Affidavit #: 5473; Scrip #: 12761 ($160); Claim Basis: Half-breed Head" in joined
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    assert "1 EVEN Claim: 3126; Affidavit #: 5473; Scrip #: 12761 ($160); Claim Basis: Half-breed Head" in joined
 
 
 def test_build_individual_scrip_desc_line_without_claim_or_affidavit_still_shows_scrip_number():
     """No claim_number/affidavit_number present (e.g. an older extraction) - the fact's own
     value line still shows whatever Scrip-specific fields it does have."""
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        rec = {"event_type": "Scrip", "page": "1", "record_id": "SCRIP-1", "event_place": "Winnipeg",
-               "type_specific_fields": {"scrip_number": "12761", "scrip_amount": "$160"},
-               "participants": [make_participant("primary", given="Roger", surname="Letendre")]}
-        primary = rec["participants"][0]
-        lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM")
-        joined = "\n".join(lines)
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    rec = {"event_type": "Scrip", "page": "1", "record_id": "SCRIP-1", "event_place": "Winnipeg",
+           "type_specific_fields": {"scrip_number": "12761", "scrip_amount": "$160"},
+           "participants": [make_participant("primary", given="Roger", surname="Letendre")]}
+    primary = rec["participants"][0]
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM", cfg)
+    joined = "\n".join(lines)
 
-        assert "1 EVEN Scrip #: 12761 ($160)" in joined
-        assert "Claim:" not in joined and "Affidavit #:" not in joined
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    assert "1 EVEN Scrip #: 12761 ($160)" in joined
+    assert "Claim:" not in joined and "Affidavit #:" not in joined
 
 
 def test_build_individual_scrip_desc_line_excludes_document_type_with_claim():
@@ -392,40 +371,34 @@ def test_build_individual_scrip_desc_line_excludes_document_type_with_claim():
     whole merged claim - showing it in the fact's own value line was misleading (per the
     user, the note appeared to cite only the witness affidavit). Still available per
     citation via _TITL's own "-- {document_type}" suffix, just not here."""
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        rec = {"event_type": "Scrip", "page": "1", "record_id": "SCRIP-5473", "event_place": "Winnipeg",
-               "type_specific_fields": {
-                   "claim_number": "3126", "affidavit_number": "5473",
-                   "scrip_number": "12761", "document_type": "Witness Affidavit",
-               },
-               "participants": [make_participant("primary", given="Roger", surname="Letendre")]}
-        primary = rec["participants"][0]
-        lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM")
-        joined = "\n".join(lines)
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    rec = {"event_type": "Scrip", "page": "1", "record_id": "SCRIP-5473", "event_place": "Winnipeg",
+           "type_specific_fields": {
+               "claim_number": "3126", "affidavit_number": "5473",
+               "scrip_number": "12761", "document_type": "Witness Affidavit",
+           },
+           "participants": [make_participant("primary", given="Roger", surname="Letendre")]}
+    primary = rec["participants"][0]
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM", cfg)
+    joined = "\n".join(lines)
 
-        assert "Document Type" not in joined
-        even_line = next(line for line in lines if line.startswith("1 EVEN"))
-        assert "Witness Affidavit" not in even_line
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    assert "Document Type" not in joined
+    even_line = next(line for line in lines if line.startswith("1 EVEN"))
+    assert "Witness Affidavit" not in even_line
 
 
 def test_build_individual_scrip_desc_line_excludes_document_type_without_claim():
     """Same exclusion in the no-claim/affidavit path."""
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        rec = {"event_type": "Scrip", "page": "1", "record_id": "SCRIP-1", "event_place": "Winnipeg",
-               "type_specific_fields": {"scrip_number": "12761", "document_type": "Register Entry"},
-               "participants": [make_participant("primary", given="Roger", surname="Letendre")]}
-        primary = rec["participants"][0]
-        lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM")
-        joined = "\n".join(lines)
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    rec = {"event_type": "Scrip", "page": "1", "record_id": "SCRIP-1", "event_place": "Winnipeg",
+           "type_specific_fields": {"scrip_number": "12761", "document_type": "Register Entry"},
+           "participants": [make_participant("primary", given="Roger", surname="Letendre")]}
+    primary = rec["participants"][0]
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM", cfg)
+    joined = "\n".join(lines)
 
-        assert "Document Type" not in joined
-        assert "Register Entry" not in joined
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    assert "Document Type" not in joined
+    assert "Register Entry" not in joined
 
 
 def test_parse_household_forms_second_family_unit_for_unrelated_boarder_household():
@@ -531,10 +504,10 @@ def test_build_individual_primary_with_no_parents_still_gets_famc():
         make_participant("primary", given="Baptiste", surname="Ledoux"),
     ]}
     primary = rec["participants"][0]
-    lines, _, _, _ = General.build_individual("I1", rec, primary, "12", "M0000000001", "27 JUL 2026", False, "RM")
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "12", "M0000000001", "27 JUL 2026", False, "RM", _CFG)
     joined = "\n".join(lines)
     assert "1 FAMC @F" in joined
-    fams = General.build_family(rec, "12", "M0000000001", "RM")
+    fams = General.build_family(rec, "12", "M0000000001", "RM", _CFG)
     assert len(fams) == 1
     famc_id = joined.split("1 FAMC @F")[1].split("@")[0]
     assert famc_id in fams[0]
@@ -552,13 +525,15 @@ def test_build_individual_fsftid_gets_companion_fs_tree_weblink():
     primary = dict(rec["participants"][0], type_specific_fields={"fsftid": "LZXY-ABC"})
     rec["participants"][0] = primary  # type: ignore
 
-    rm_lines, _, _, _ = General.build_individual("I1", rec, primary, "12", "M0000000001", "27 JUL 2026", False, "RM")
+    rm_lines, _, _, _ = General.build_individual(
+        "I1", rec, primary, "12", "M0000000001", "27 JUL 2026", False, "RM", _CFG)
     joined_rm = "\n".join(rm_lines)
     assert "1 _FSFTID LZXY-ABC" in joined_rm
     assert "1 _WEBTAG" in joined_rm
     assert "2 URL https://www.familysearch.org/tree/person/details/LZXY-ABC" in joined_rm
 
-    ftm_lines, _, _, _ = General.build_individual("I1", rec, primary, "12", "M0000000001", "27 JUL 2026", False, "FTM")
+    ftm_lines, _, _, _ = General.build_individual(
+        "I1", rec, primary, "12", "M0000000001", "27 JUL 2026", False, "FTM", _CFG)
     joined_ftm = "\n".join(ftm_lines)
     assert "1 _LINK https://www.familysearch.org/tree/person/details/LZXY-ABC" in joined_ftm
 
@@ -575,7 +550,7 @@ def test_build_individual_apid_is_individual_level_not_nested_in_citation(monkey
     primary = dict(rec["participants"][0], type_specific_fields={"apid": "105307051"})
     rec["participants"][0] = primary  # type: ignore
 
-    lines, _, _, _ = General.build_individual("I1", rec, primary, "12", "M0000000001", "27 JUL 2026", False, "RM")
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "12", "M0000000001", "27 JUL 2026", False, "RM", _CFG)
     apid_lines = [ln for ln in lines if "_APID" in ln]
     assert apid_lines == ["1 _APID 1,2442::105307051"], apid_lines
 
@@ -587,7 +562,7 @@ def test_build_family_baptism_shape_single_famc_no_suffix():
         make_participant("father", given="Pierre", surname="Ledoux"),
         make_participant("mother", given="Marie", surname="Roy"),
     ]}
-    fams = General.build_family(rec, "1", "M0000000001", "RM")
+    fams = General.build_family(rec, "1", "M0000000001", "RM", _CFG)
     assert len(fams) == 1
     assert "1 HUSB" in fams[0] and "1 WIFE" in fams[0] and "1 CHIL" in fams[0]
     assert "@F" in fams[0].splitlines()[0] and not fams[0].splitlines()[0].split("@")[1].endswith(("G", "B"))
@@ -603,7 +578,7 @@ def test_build_family_marriage_shape_three_families_with_suffixes():
                make_participant("father_in_law", given="Louis", surname="Boucher"),
                make_participant("mother_in_law", given="Rose", surname="Dubois", sex="F"),
            ]}
-    fams = General.build_family(rec, "5", "M0000000001", "RM")
+    fams = General.build_family(rec, "5", "M0000000001", "RM", _CFG)
     assert len(fams) == 3
     main, g_fam, b_fam = fams
     assert "1 MARR" in main
@@ -620,7 +595,7 @@ def test_build_family_burial_with_surviving_spouse_forms_fams_without_marr_event
         make_participant("primary", given="Baptiste", surname="Ledoux"),
         make_participant("spouse", given="Marie", surname="Roy", sex="F"),
     ]}
-    fams = General.build_family(rec, "9", "M0000000001", "RM")
+    fams = General.build_family(rec, "9", "M0000000001", "RM", _CFG)
     assert len(fams) == 1
     assert "1 HUSB" in fams[0] and "1 WIFE" in fams[0]
     assert "MARR" not in fams[0]
@@ -633,7 +608,7 @@ def test_build_family_scrip_shape_claimant_spouse_and_children_share_one_family(
         make_participant("child", given="Louis", surname="Ledoux"),
         make_participant("child", given="Rose", surname="Ledoux", sex="F"),
     ]}
-    fams = General.build_family(rec, "2", "M0000000001", "RM")
+    fams = General.build_family(rec, "2", "M0000000001", "RM", _CFG)
     assert len(fams) == 1
     assert fams[0].count("1 CHIL") == 2
 
@@ -646,7 +621,7 @@ def test_build_individual_famc_and_fams_tags_use_semantic_not_digits():
                make_participant("father", given="Pierre", surname="Gagnon"),
            ]}
     primary = rec["participants"][0]
-    lines, _, _, _ = General.build_individual("I1", rec, primary, "5", "M0000000001", "26 JUL 2026", False, "RM")
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "5", "M0000000001", "26 JUL 2026", False, "RM", _CFG)
     joined = "\n".join(lines)
     assert "1 FAMS @F" in joined
     assert "1 FAMC @F" in joined and joined.count("@F") >= 2
@@ -655,7 +630,7 @@ def test_build_individual_famc_and_fams_tags_use_semantic_not_digits():
 def test_build_custom_fact_lines_renders_even_type_and_citation():
     rec = {"page": "1", "record_id": "B-1"}
     part = make_participant("primary")
-    lines = General.build_custom_fact_lines("Race", "Metis", rec, part, "1", "M0000000001", "RM")
+    lines = General.build_custom_fact_lines("Race", "Metis", rec, part, "1", "M0000000001", "RM", _CFG)
     assert lines[0] == "1 EVEN Metis"
     assert lines[1] == "2 TYPE Race"
     assert "2 SOUR" in "\n".join(lines)
@@ -664,7 +639,7 @@ def test_build_custom_fact_lines_renders_even_type_and_citation():
 def test_build_custom_fact_lines_empty_value_returns_nothing():
     rec = {"page": "1", "record_id": "B-1"}
     part = make_participant("primary")
-    assert General.build_custom_fact_lines("Race", "", rec, part, "1", "M0000000001", "RM") == []
+    assert General.build_custom_fact_lines("Race", "", rec, part, "1", "M0000000001", "RM", _CFG) == []
 
 
 def test_build_individual_race_uses_generic_custom_fact_not_bare_race_tag():
@@ -673,7 +648,7 @@ def test_build_individual_race_uses_generic_custom_fact_not_bare_race_tag():
     ]}
     primary = rec["participants"][0]
     primary["race"] = "Metis"  # type: ignore
-    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM")
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM", _CFG)
     joined = "\n".join(lines)
     assert "_RACE" not in joined
     assert "1 EVEN Metis" in joined and "2 TYPE Race" in joined
@@ -683,51 +658,42 @@ def test_build_individual_scrip_event_gets_type_line_and_value_from_extra_fields
     """Scrip's own event_type resolves to gedcom_tag 'EVEN' - it's built as a dedicated
     "Scrip" custom fact (FactTypes.json code 10004), needing a '2 TYPE Scrip' line for
     RootsMagic to recognize it, with its own Date/Place/Desc all filled in."""
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        rec = {"event_type": "Scrip", "page": "1", "record_id": "SC-1", "event_place": "Winnipeg",
-               "type_specific_fields": {"scrip_number": "1234", "scrip_amount": "$160"},
-               "participants": [make_participant("primary", given="Baptiste", surname="Ledoux")]}
-        primary = rec["participants"][0]
-        lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM")
-        joined = "\n".join(lines)
-        assert "2 TYPE Scrip" in joined
-        assert "1 EVEN Scrip #: 1234 ($160)" in joined
-        assert "2 PLAC Winnipeg" in joined
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    rec = {"event_type": "Scrip", "page": "1", "record_id": "SC-1", "event_place": "Winnipeg",
+           "type_specific_fields": {"scrip_number": "1234", "scrip_amount": "$160"},
+           "participants": [make_participant("primary", given="Baptiste", surname="Ledoux")]}
+    primary = rec["participants"][0]
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM", cfg)
+    joined = "\n".join(lines)
+    assert "2 TYPE Scrip" in joined
+    assert "1 EVEN Scrip #: 1234 ($160)" in joined
+    assert "2 PLAC Winnipeg" in joined
 
 
 def test_build_individual_scrip_fact_gets_document_year_as_date_and_media_attached():
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        rec = {"event_type": "Scrip", "page": "1", "record_id": "SC-1", "year": "1901",
-               "type_specific_fields": {"scrip_number": "1234"},
-               "participants": [make_participant("primary", given="Baptiste", surname="Ledoux")]}
-        primary = rec["participants"][0]
-        lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM")
-        joined = "\n".join(lines)
-        assert "2 DATE 1901" in joined
-        assert "3 OBJE @M0000000001@" in joined
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    rec = {"event_type": "Scrip", "page": "1", "record_id": "SC-1", "year": "1901",
+           "type_specific_fields": {"scrip_number": "1234"},
+           "participants": [make_participant("primary", given="Baptiste", surname="Ledoux")]}
+    primary = rec["participants"][0]
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM", cfg)
+    joined = "\n".join(lines)
+    assert "2 DATE 1901" in joined
+    assert "3 OBJE @M0000000001@" in joined
 
 
 def test_build_individual_scrip_race_fact_gets_no_document_year_date():
     """Per the user: everything but Race should carry the document year as its DATE -
     Race describes an ongoing characteristic, not something dated to one document."""
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        rec = {"event_type": "Scrip", "page": "1", "record_id": "SC-1", "year": "1901",
-               "type_specific_fields": {}, "participants": [make_participant("primary")]}
-        primary = rec["participants"][0]
-        primary["race"] = "Metis"  # type: ignore
-        lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM")
-        joined = "\n".join(lines)
-        race_block = joined.split("2 TYPE Race")[1].split("2 SOUR")[0]
-        assert "2 DATE" not in race_block
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    rec = {"event_type": "Scrip", "page": "1", "record_id": "SC-1", "year": "1901",
+           "type_specific_fields": {}, "participants": [make_participant("primary")]}
+    primary = rec["participants"][0]
+    primary["race"] = "Metis"  # type: ignore
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM", cfg)
+    joined = "\n".join(lines)
+    race_block = joined.split("2 TYPE Race")[1].split("2 SOUR")[0]
+    assert "2 DATE" not in race_block
 
 
 def test_build_individual_scrip_witness_associations_exclude_nuclear_family():
@@ -736,24 +702,21 @@ def test_build_individual_scrip_witness_associations_exclude_nuclear_family():
     old filter (just excluding 'primary') used to sweep them in too. Uses FTM output,
     where witnesses render as plain names in a NOTE line - RM's own _SHAR form only ever
     carries a UID + role text, not a name, so it can't distinguish this directly."""
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        rec = {"event_type": "Scrip", "page": "1", "record_id": "SC-1",
-               "type_specific_fields": {"scrip_number": "1"},
-               "participants": [
-                   make_participant("primary", given="Baptiste", surname="Ledoux"),
-                   make_participant("spouse", given="Marie", surname="Ledoux"),
-                   make_participant("child", given="Jean", surname="Ledoux"),
-                   make_participant(None, role_name="Witness", given="Louis", surname="Riel"),
-               ]}
-        primary = rec["participants"][0]
-        lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "FTM")
-        witness_note = next(line for line in lines if line.startswith("2 NOTE Witnesses:"))
-        assert "Louis" in witness_note and "Riel" in witness_note
-        assert "Marie" not in witness_note
-        assert "Jean" not in witness_note
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    rec = {"event_type": "Scrip", "page": "1", "record_id": "SC-1",
+           "type_specific_fields": {"scrip_number": "1"},
+           "participants": [
+               make_participant("primary", given="Baptiste", surname="Ledoux"),
+               make_participant("spouse", given="Marie", surname="Ledoux"),
+               make_participant("child", given="Jean", surname="Ledoux"),
+               make_participant(None, role_name="Witness", given="Louis", surname="Riel"),
+           ]}
+    primary = rec["participants"][0]
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "FTM", cfg)
+    witness_note = next(line for line in lines if line.startswith("2 NOTE Witnesses:"))
+    assert "Louis" in witness_note and "Riel" in witness_note
+    assert "Marie" not in witness_note
+    assert "Jean" not in witness_note
 
 
 def test_build_gedcom_from_general_excludes_commissioner_from_indis():
@@ -774,7 +737,7 @@ def test_build_gedcom_from_general_excludes_commissioner_from_indis():
             }],
         }],
     }
-    ged = General.build_gedcom_from_general(data, "RM")
+    ged = General.build_gedcom_from_general(data, "RM", _CFG)
     # Pierre Falcon (claimant) and Louis Riel (witness) get INDIs; Roger Goulet (commissioner) must NOT
     assert "1 NAME Pierre /Falcon/" in ged
     assert "1 NAME Louis /Riel/" in ged
@@ -789,7 +752,7 @@ def test_build_individual_baptism_event_gets_no_type_line():
         make_participant("primary", given="Baptiste", surname="Ledoux"),
     ]}
     primary = rec["participants"][0]
-    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM")
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM", _CFG)
     joined = "\n".join(lines)
     assert "1 BAPM" in joined
     assert "2 TYPE Baptism" not in joined
@@ -805,7 +768,7 @@ def test_build_individual_alternate_name_renders_as_proposed_name_fact_with_even
     ]}
     primary = rec["participants"][0]
     primary["alternate_names"] = [{"value": "Baptiste Ladoux"}]
-    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM")
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM", _CFG)
     joined = "\n".join(lines)
     assert "1 NAME Baptiste /Ladoux/" in joined
     assert "2 _PROOF proposed" in joined
@@ -895,86 +858,63 @@ def test_get_scrip_citation_fields_declares_empty_values_blank_not_omitted():
 
 
 def test_build_general_citation_scrip_cites_the_matching_template_source_with_field_block():
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        rec = {"page": "1", "record_id": "SC-1", "record_number": "5473", "lac_pid": "1506170",
-               "type_specific_fields": {"commission_reference": "Affidavit under Manitoba Act, 33 Vic. Cap 3",
-                                        "affidavit_number": "5473"}}
-        part = make_participant("primary", given="William", surname="Anderson")
-        blocks = General.build_general_citation(rec, part, "CENS", "1324", "M0000000001", target_software="RM")
-        joined = blocks[0]
-        assert "2 SOUR @S20001@" in joined
-        assert "3 _TMPLT" in joined
-        assert "5 NAME AffidavitNumber" in joined and "5 VALUE 5473" in joined
-        assert "LAC Digital Record" in joined
-        assert (
-            "https://recherche-collection-search.bac-lac.gc.ca/eng/Home/Record?app=fonandcol&IdNumber=1506170"
-            in joined
-        )
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    rec = {"page": "1", "record_id": "SC-1", "record_number": "5473", "lac_pid": "1506170",
+           "type_specific_fields": {"commission_reference": "Affidavit under Manitoba Act, 33 Vic. Cap 3",
+                                    "affidavit_number": "5473"}}
+    part = make_participant("primary", given="William", surname="Anderson")
+    blocks = General.build_general_citation(rec, part, "CENS", "1324", "M0000000001", cfg, target_software="RM")
+    joined = blocks[0]
+    assert "2 SOUR @S20001@" in joined
+    assert "3 _TMPLT" in joined
+    assert "5 NAME AffidavitNumber" in joined and "5 VALUE 5473" in joined
+    assert "LAC Digital Record" in joined
+    assert (
+        "https://recherche-collection-search.bac-lac.gc.ca/eng/Home/Record?app=fonandcol&IdNumber=1506170"
+        in joined
+    )
 
 
 def test_build_general_citation_scrip_forces_proven_even_when_date_is_estimated():
     """Every Scrip fact is read straight off a sworn primary source - get_proof_status'
     generic BEF/ABT/EST downgrade (still correct for Parish/Census) must not apply here."""
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        rec = {"page": "1", "record_id": "SC-1", "type_specific_fields": {}}
-        part = make_participant("primary")
-        blocks = General.build_general_citation(rec, part, "BIRT", "1324", "M0000000001",
-                                                proof_status="proposed", target_software="RM")
-        assert "2 _PROOF proven" in blocks[0]
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    rec = {"page": "1", "record_id": "SC-1", "type_specific_fields": {}}
+    part = make_participant("primary")
+    blocks = General.build_general_citation(rec, part, "BIRT", "1324", "M0000000001", cfg,
+                                            proof_status="proposed", target_software="RM")
+    assert "2 _PROOF proven" in blocks[0]
 
 
 def test_build_general_citation_scrip_falls_back_to_freeform_when_template_unresolved():
     """An unrecognized commission_reference must not get mis-templated - it cites the
     existing per-volume freeform source instead, same @S{vol}@ id as before this change."""
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        rec = {"page": "1", "record_id": "SC-1", "type_specific_fields": {}}
-        part = make_participant("primary")
-        blocks = General.build_general_citation(rec, part, "CENS", "1324", "M0000000001", target_software="RM")
-        assert "2 SOUR @S1324@" in blocks[0]
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    rec = {"page": "1", "record_id": "SC-1", "type_specific_fields": {}}
+    part = make_participant("primary")
+    blocks = General.build_general_citation(rec, part, "CENS", "1324", "M0000000001", cfg, target_software="RM")
+    assert "2 SOUR @S1324@" in blocks[0]
 
 
 def test_get_volume_sources_omits_church_template_for_scrip():
-    General.set_active_profile(Scrip.ScripProfile())
-    orig_config = dict(General.GENERAL_CONFIG)
-    try:
-        General.GENERAL_CONFIG['parish_name'] = "Library and Archives Canada"
-        General.GENERAL_CONFIG['register_name'] = "Scrip Records"
-        General.GENERAL_CONFIG['volume_title'] = "Scrip Records"
-        General.GENERAL_CONFIG['parish_location'] = "Ottawa, ON"
-        lines = General.get_volume_sources({"1324"}, "RM")
-        joined = "\n".join(lines)
-        assert "TID 355" not in joined
-        assert "Church_Author" not in joined
-    finally:
-        General.GENERAL_CONFIG.clear()
-        General.GENERAL_CONFIG.update(orig_config)
-        General.set_active_profile(General.GeneralProfile())
+    cfg = General.GeneralRunConfig(
+        profile=Scrip.ScripProfile(), parish_name="Library and Archives Canada",
+        register_name="Scrip Records", volume_title="Scrip Records", parish_location="Ottawa, ON",
+    )
+    lines = General.get_volume_sources({"1324"}, "RM", cfg)
+    joined = "\n".join(lines)
+    assert "TID 355" not in joined
+    assert "Church_Author" not in joined
 
 
 def test_get_volume_sources_keeps_church_template_for_parish():
-    General.set_active_profile(General.GeneralProfile())
-    orig_config = dict(General.GENERAL_CONFIG)
-    try:
-        General.GENERAL_CONFIG['parish_name'] = "St. Boniface"
-        General.GENERAL_CONFIG['register_name'] = "Baptisms"
-        General.GENERAL_CONFIG['volume_title'] = "Baptisms"
-        General.GENERAL_CONFIG['parish_location'] = "Manitoba"
-        lines = General.get_volume_sources({"1"}, "RM")
-        joined = "\n".join(lines)
-        assert "TID 10009" in joined
-    finally:
-        General.GENERAL_CONFIG.clear()
-        General.GENERAL_CONFIG.update(orig_config)
-        General.set_active_profile(General.GeneralProfile())
+    cfg = General.GeneralRunConfig(
+        parish_name="St. Boniface", register_name="Baptisms",
+        volume_title="Baptisms", parish_location="Manitoba",
+    )
+    lines = General.get_volume_sources({"1"}, "RM", cfg)
+    joined = "\n".join(lines)
+    assert "TID 10009" in joined
 
 
 def test_build_individual_researcher_citation_has_both_name_and_titl():
@@ -984,7 +924,7 @@ def test_build_individual_researcher_citation_has_both_name_and_titl():
     rec = {"event_type": "Baptism", "page": "1", "record_id": "B-1",
            "participants": [make_participant("primary", given="Baptiste", surname="Ledoux")]}
     primary = rec["participants"][0]
-    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM")
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM", _CFG)
     joined = "\n".join(lines)
     assert "2 NAME Researcher:" in joined
     assert "2 _TITL Researcher:" in joined
@@ -1005,22 +945,19 @@ def test_format_gedcom_date_handles_iso_and_natural_text():
 
 
 def test_build_general_citation_scrip_emits_commissioners_review_note():
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        rec = {
-            "page": "1", "record_id": "SCRIP-5473", "year": "1885",
-            "citation_text": "Verbatim French / English affidavit text...",
-            "citation_details": "Commissioner's Review: Roger Letendre claims as Half-breed head of family.",
-            "type_specific_fields": {"claim_number": "5473"}
-        }
-        part = {"std_given": "Roger", "std_surname": "Letendre", "role_number": "1"}
-        blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001")
-        assert len(blocks) == 1
-        assert "4 TEXT Verbatim French / English affidavit text" in blocks[0]
-        assert "3 NOTE Commissioner's Review:" in blocks[0]
-        assert "Roger Letendre claims as Half-breed head of family" in blocks[0]
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    rec = {
+        "page": "1", "record_id": "SCRIP-5473", "year": "1885",
+        "citation_text": "Verbatim French / English affidavit text...",
+        "citation_details": "Commissioner's Review: Roger Letendre claims as Half-breed head of family.",
+        "type_specific_fields": {"claim_number": "5473"}
+    }
+    part = {"std_given": "Roger", "std_surname": "Letendre", "role_number": "1"}
+    blocks = General.build_general_citation(rec, part, "EVEN", "1", "M0000000001", cfg)
+    assert len(blocks) == 1
+    assert "4 TEXT Verbatim French / English affidavit text" in blocks[0]
+    assert "3 NOTE Commissioner's Review:" in blocks[0]
+    assert "Roger Letendre claims as Half-breed head of family" in blocks[0]
 
 
 def test_apply_collection_metadata_auto_resolves_image_dir(monkeypatch):
@@ -1029,18 +966,15 @@ def test_apply_collection_metadata_auto_resolves_image_dir(monkeypatch):
     SOURCE_DIR convention for where that type's images were actually extracted from. A
     stray HBCA_IMAGE_DIR env var (e.g. left over from a legacy .env) must NOT change it."""
     monkeypatch.setenv("HBCA_IMAGE_DIR", "SomeOtherPath")
-    orig_image_dir = General.IMAGE_DIR
-    try:
-        General.apply_collection_metadata({"record_type_name": "HBCA"})
-        assert General.IMAGE_DIR == Utils.safe_path(Utils.GENEALOGY_DIR, os.getenv("MEDIA_DIR", "Media"), "HBCA")
+    cfg = General.GeneralRunConfig()
+    General.apply_collection_metadata({"record_type_name": "HBCA"}, cfg)
+    assert cfg.image_dir == Utils.safe_path(Utils.GENEALOGY_DIR, os.getenv("MEDIA_DIR", "Media"), "HBCA")
 
-        General.apply_collection_metadata({"record_type_name": "Parish"})
-        assert General.IMAGE_DIR == Utils.safe_path(Utils.GENEALOGY_DIR, os.getenv("MEDIA_DIR", "Media"), "Parish")
+    General.apply_collection_metadata({"record_type_name": "Parish"}, cfg)
+    assert cfg.image_dir == Utils.safe_path(Utils.GENEALOGY_DIR, os.getenv("MEDIA_DIR", "Media"), "Parish")
 
-        General.apply_collection_metadata({"record_type_name": "Scrip"})
-        assert General.IMAGE_DIR == Utils.safe_path(Utils.GENEALOGY_DIR, os.getenv("MEDIA_DIR", "Media"), "Scrip")
-    finally:
-        General.IMAGE_DIR = orig_image_dir
+    General.apply_collection_metadata({"record_type_name": "Scrip"}, cfg)
+    assert cfg.image_dir == Utils.safe_path(Utils.GENEALOGY_DIR, os.getenv("MEDIA_DIR", "Media"), "Scrip")
 
 
 def test_run_general_flavor_scrip_defaults_to_scrip_ged(monkeypatch):
@@ -1048,20 +982,12 @@ def test_run_general_flavor_scrip_defaults_to_scrip_ged(monkeypatch):
     monkeypatch.delenv("GEDCOM_OUTPUT_NAME", raising=False)
     monkeypatch.delenv("SCRIP_GEDCOM_NAME", raising=False)
     orig_output_name = Utils.GEDCOM_OUTPUT_NAME
-    orig_repo = General.REPOSITORY
-    orig_repo_loc = General.REPOSITORY_LOC
-    orig_config = dict(General.GENERAL_CONFIG)
     try:
         Utils.GEDCOM_OUTPUT_NAME = "Family_Register.ged"
         General.run_general_flavor({"record_type_name": "Scrip", "sheets": []}, Scrip.ScripProfile())
         assert Utils.GEDCOM_OUTPUT_NAME == "Scrip.ged"
     finally:
         Utils.GEDCOM_OUTPUT_NAME = orig_output_name
-        General.REPOSITORY = orig_repo
-        General.REPOSITORY_LOC = orig_repo_loc
-        General.GENERAL_CONFIG.clear()
-        General.GENERAL_CONFIG.update(orig_config)
-        General.set_active_profile(General.GeneralProfile())
 
 
 def test_load_source_template_lines_from_rmst():
@@ -1078,7 +1004,7 @@ def test_load_source_template_lines_from_rmst():
 
 
 def test_get_scrip_template_sources_simplified_citations_fields():
-    sources = Scrip.get_scrip_template_sources({20001}, "RM")
+    sources = Scrip.get_scrip_template_sources({20001}, "RM", _CFG)
     joined = "\n".join(sources)
     assert "0 @S20001@ SOUR" in joined
     assert "2 TID 20001" in joined
@@ -1089,62 +1015,56 @@ def test_get_scrip_template_sources_simplified_citations_fields():
 
 
 def test_generate_uid_scrip_uses_pid_or_record_id_directly():
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        rec = {"page": "1", "record_id": "SC-100", "lac_pid": "1502188", "participants": [
-            {"role_number": "0", "std_given": "Jean", "std_surname": "Riel"},
-            {"role_number": "1", "std_given": "Marie", "std_surname": "Lafreniere"}
-        ]}
-        # Primary participant role 0 -> returns PID directly
-        primary_uid = General.generate_uid(rec, rec["participants"][0], "1")
-        assert primary_uid == "1502188"
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    rec = {"page": "1", "record_id": "SC-100", "lac_pid": "1502188", "participants": [
+        {"role_number": "0", "std_given": "Jean", "std_surname": "Riel"},
+        {"role_number": "1", "std_given": "Marie", "std_surname": "Lafreniere"}
+    ]}
+    # Primary participant role 0 -> returns PID directly
+    primary_uid = General.generate_uid(rec, rec["participants"][0], "1", cfg)
+    assert primary_uid == "1502188"
 
-        # Secondary participant role 1 -> returns PID_role
-        spouse_uid = General.generate_uid(rec, rec["participants"][1], "1")
-        assert spouse_uid == "1502188_1"
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    # Secondary participant role 1 -> returns PID_role
+    spouse_uid = General.generate_uid(rec, rec["participants"][1], "1", cfg)
+    assert spouse_uid == "1502188_1"
 
 
 def test_build_gedcom_from_general_emits_srctemplates_for_rm():
-    General.set_active_profile(Scrip.ScripProfile())
-    try:
-        json_data = {
-            "record_type_name": "Scrip",
-            "sheets": [
-                {
-                    "volume_identifier": "1324",
-                    "records": [
-                        {
-                            "page": "1",
-                            "record_id": "SC-1",
-                            "lac_pid": "1506170",
-                            "event_type": "Affidavit",
-                            "event_date": "1875",
-                            "type_specific_fields": {
-                                "commission_reference": "Affidavit under Manitoba Act, 33 Vic. Cap 3",
-                                "affidavit_number": "5473"
-                            },
-                            "participants": [
-                                {
-                                    "role_number": "0",
-                                    "role_semantic": "primary",
-                                    "std_given": "William",
-                                    "std_surname": "Anderson",
-                                }
-                            ]
-                        }
-                    ]
-                }
-            ]
-        }
-        ged_text = General.build_gedcom_from_general(json_data, target_software="RM")
-        assert "0 _STMPLT" in ged_text
-        assert "1 NAME !Simple Citations: Métis Scrip (Manitoba, 1870–1876)" in ged_text
-        assert "0 @S20001@ SOUR" in ged_text
-        assert "0 @I1506170@ INDI" in ged_text
-    finally:
-        General.set_active_profile(General.GeneralProfile())
+    cfg = General.GeneralRunConfig(profile=Scrip.ScripProfile())
+    json_data = {
+        "record_type_name": "Scrip",
+        "sheets": [
+            {
+                "volume_identifier": "1324",
+                "records": [
+                    {
+                        "page": "1",
+                        "record_id": "SC-1",
+                        "lac_pid": "1506170",
+                        "event_type": "Affidavit",
+                        "event_date": "1875",
+                        "type_specific_fields": {
+                            "commission_reference": "Affidavit under Manitoba Act, 33 Vic. Cap 3",
+                            "affidavit_number": "5473"
+                        },
+                        "participants": [
+                            {
+                                "role_number": "0",
+                                "role_semantic": "primary",
+                                "std_given": "William",
+                                "std_surname": "Anderson",
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+    ged_text = General.build_gedcom_from_general(json_data, "RM", cfg)
+    assert "0 _STMPLT" in ged_text
+    assert "1 NAME !Simple Citations: Métis Scrip (Manitoba, 1870–1876)" in ged_text
+    assert "0 @S20001@ SOUR" in ged_text
+    assert "0 @I1506170@ INDI" in ged_text
 
 
 def test_build_individual_renders_generic_facts_via_fact_types():
@@ -1153,7 +1073,7 @@ def test_build_individual_renders_generic_facts_via_fact_types():
     primary = rec["participants"][0]  # type: ignore
     primary["facts"] = [{"fact_type": "Occupation", "value": "Farmer"}]  # type: ignore
 
-    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM")
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM", _CFG)
     joined = "\n".join(lines)
 
     assert "1 EVEN Farmer" in joined
@@ -1166,7 +1086,7 @@ def test_build_individual_skips_unknown_fact_type_gracefully():
     primary = rec["participants"][0]  # type: ignore
     primary["facts"] = [{"fact_type": "", "value": "irrelevant"}]  # type: ignore
 
-    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM")
+    lines, _, _, _ = General.build_individual("I1", rec, primary, "1", "M0000000001", "26 JUL 2026", False, "RM", _CFG)
     joined = "\n".join(lines)
 
     assert "irrelevant" not in joined
@@ -1228,8 +1148,8 @@ def test_rmst_element_to_gedcom_uses_stmplt_tag_vocabulary():
 def test_general_profile_citation_detail_fields_wraps_in_tmplt():
     rec = {"record_id": "REC-1", "type_specific_fields": {}}
     part = {"std_given": "Marie", "std_surname": "Gagnon"}
-    General.GENERAL_CONFIG["parish_location"] = "St. Boniface, Manitoba"
-    lines = General.GeneralProfile.citation_detail_fields(rec, part, "12", "3", "RM")
+    cfg = General.GeneralRunConfig(parish_location="St. Boniface, Manitoba")
+    lines = General.GeneralProfile.citation_detail_fields(rec, part, "12", "3", "RM", cfg)
     assert lines[0] == "3 _TMPLT"
     assert "4 FIELD" in lines
     assert any(ln == "5 NAME SourceDetailPerson" for ln in lines)

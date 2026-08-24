@@ -27,9 +27,9 @@ HBCA_TEMPLATE_ID = 10009
 
 class HBCAProfile:
     @staticmethod
-    def dynamic_source_id(_vol_digits: str, rec: Optional[dict] = None) -> str:
-        if General.GENERAL_CONFIG.get("platform_source_id"):
-            return f"@S{General.GENERAL_CONFIG['platform_source_id']}@"
+    def dynamic_source_id(_vol_digits: str, cfg: "General.GeneralRunConfig", rec: Optional[dict] = None) -> str:
+        if cfg.platform_source_id:
+            return f"@S{cfg.platform_source_id}@"
         if rec:
             refd = Utils.clean_val((rec.get('type_specific_fields') or {}).get('refd'))
             if refd:
@@ -108,7 +108,7 @@ class HBCAProfile:
 
     @staticmethod
     def citation_detail_fields(rec: dict, part: dict, page: str, vol: str,
-                               target_software: str) -> List[str]:
+                               target_software: str, cfg: "General.GeneralRunConfig") -> List[str]:
         _ = vol
         if target_software != "RM":
             return []
@@ -133,7 +133,7 @@ class HBCAProfile:
         location_val = Utils.clean_val(
             rec.get('event_place')
             or tf.get('parish_of_origin')
-            or General.GENERAL_CONFIG.get('parish_location')
+            or cfg.parish_location
             or "Hudson's Bay Company Territories"
         )
         repo_val = "Hudson's Bay Company Archives, Archives of Manitoba, Winnipeg, MB"
@@ -192,7 +192,8 @@ class HBCAProfile:
         return ["3 _TMPLT"] + field_lines
 
     @staticmethod
-    def citation_text_block(rec: dict, _part: dict, raw_orig: str, raw_trans: str) -> List[str]:
+    def citation_text_block(rec: dict, _part: dict, raw_orig: str, raw_trans: str,
+                            cfg: "General.GeneralRunConfig") -> List[str]:
         orig_val = Utils.clean_val(raw_orig)
         trans_val = Utils.clean_val(raw_trans)
 
@@ -234,7 +235,7 @@ class HBCAProfile:
             if single_text:
                 lines.append(single_text)
         else:
-            citation_detail_header = General.GENERAL_CONFIG.get('citation_detail', '')
+            citation_detail_header = cfg.citation_detail
             if citation_detail_header:
                 lines.append(f"4 TEXT {citation_detail_header}")
                 trans_text = Utils.wrap_text(trans_val, '5 CONT')
@@ -243,7 +244,7 @@ class HBCAProfile:
             if trans_text:
                 lines.append(trans_text)
 
-            citation_text_header = General.GENERAL_CONFIG.get('citation_text', '')
+            citation_text_header = cfg.citation_text
             if citation_text_header:
                 lines.append(f"3 NOTE {citation_text_header}")
                 orig_text = Utils.wrap_text(orig_val, '4 CONT')
@@ -265,18 +266,18 @@ class HBCAProfile:
     def build_primary_event_lines(rec: dict, part: dict, event_tag: str, witnesses: List[dict],
                                   vol: str, media_uid: str, target_software: str, _resi: str,
                                   alt_names: list, _scrip_fact_date: str, raw_event_date: str,
-                                  age: str) -> List[str]:
+                                  age: str, cfg: "General.GeneralRunConfig") -> List[str]:
         return General.build_generic_primary_event_lines(
             rec, part, event_tag, witnesses, vol, media_uid, target_software,
-            alt_names, raw_event_date, age
+            alt_names, raw_event_date, age, cfg
         )
 
     @staticmethod
-    def volume_source_detail_fields(_v_clause: str) -> List[str]:
+    def volume_source_detail_fields(_v_clause: str, _cfg: "General.GeneralRunConfig") -> List[str]:
         return []
 
     @staticmethod
-    def media_caption(sheet: dict, _vol: str, pages: str) -> str:
+    def media_caption(sheet: dict, _vol: str, pages: str, _cfg: "General.GeneralRunConfig") -> str:
         meta = sheet.get('document_metadata') or {}
         first_rec = next(iter(sheet.get('records', [])), {})
         tf = first_rec.get('type_specific_fields') or {}
@@ -289,7 +290,8 @@ class HBCAProfile:
         return f"HBCA Biographical Sheet - Page {pages or '1'}"
 
     @staticmethod
-    def resolve_source_templates(_json_data: dict, target_software: str) -> List[str]:
+    def resolve_source_templates(_json_data: dict, target_software: str,
+                                 _cfg: "General.GeneralRunConfig") -> List[str]:
         display_name = "Hudson's Bay Company Archives: Biographical Sheets"
         abbr = "HBCA Biographical Sheets"
         repository = "Hudson's Bay Company Archives, Archives of Manitoba"

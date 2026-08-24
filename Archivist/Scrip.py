@@ -261,10 +261,10 @@ def get_scrip_citation_fields(template_id: int, rec: dict, part: dict, vol: str)
     return ["3 _TMPLT"] + lines
 
 
-def get_scrip_template_sources(template_ids_used: set, target_software: str) -> list:
+def get_scrip_template_sources(template_ids_used: set, target_software: str, cfg: "General.GeneralRunConfig") -> list:
     """Builds master SOUR records for each referenced Métis Scrip template."""
     lines = []
-    repository = Utils.clean_val(General.REPOSITORY) or "Library and Archives Canada, Ottawa, Ontario"
+    repository = Utils.clean_val(cfg.repository) or "Library and Archives Canada, Ottawa, Ontario"
     for tid in sorted(template_ids_used):
         tpl = _SCRIP_TEMPLATES.get(tid)
         if not tpl:
@@ -300,7 +300,7 @@ def get_scrip_template_sources(template_ids_used: set, target_software: str) -> 
             block.extend(["2 FIELD", "3 NAME SourceDescription", f"3 VALUE {source_desc}"])
             block.extend(["2 FIELD", "3 NAME Collection", f"3 VALUE {collection}"])
             block.extend(["2 FIELD", "3 NAME Repository", f"3 VALUE {repository}"])
-            block.extend(Utils.weblink_lines(General.COLLECTION_URL, General.COLLECTION_NAME, "RM"))
+            block.extend(Utils.weblink_lines(cfg.collection_url, cfg.collection_name, "RM"))
         else:
             block = [
                 f"0 {s_id} SOUR",
@@ -309,16 +309,16 @@ def get_scrip_template_sources(template_ids_used: set, target_software: str) -> 
                 f"1 PUBL {bibl}",
                 f"1 REFN {tid}",
             ]
-            block.extend(Utils.weblink_lines(General.COLLECTION_URL, General.COLLECTION_NAME, "FTM"))
+            block.extend(Utils.weblink_lines(cfg.collection_url, cfg.collection_name, "FTM"))
         lines.extend(block)
     return lines
 
 
 class ScripProfile:
     @staticmethod
-    def dynamic_source_id(vol_digits: str, rec: Optional[dict] = None) -> str:
-        if General.GENERAL_CONFIG.get("platform_source_id"):
-            return f"@S{General.GENERAL_CONFIG['platform_source_id']}@"
+    def dynamic_source_id(vol_digits: str, cfg: "General.GeneralRunConfig", rec: Optional[dict] = None) -> str:
+        if cfg.platform_source_id:
+            return f"@S{cfg.platform_source_id}@"
         if rec:
             mikan = Utils.clean_val((rec.get('type_specific_fields') or {}).get('collection_mikan'))
             if mikan:
@@ -375,7 +375,7 @@ class ScripProfile:
 
     @staticmethod
     def citation_detail_fields(rec: dict, part: dict, page: str, vol: str,
-                               target_software: str) -> List[str]:
+                               target_software: str, _cfg: "General.GeneralRunConfig") -> List[str]:
         _ = page
         if target_software != "RM":
             return []
@@ -385,7 +385,8 @@ class ScripProfile:
         return get_scrip_citation_fields(template_id, rec, part, vol)
 
     @staticmethod
-    def citation_text_block(rec: dict, _part: dict, raw_orig: str, raw_trans: str) -> List[str]:
+    def citation_text_block(rec: dict, _part: dict, raw_orig: str, raw_trans: str,
+                            _cfg: "General.GeneralRunConfig") -> List[str]:
         type_fields = rec.get('type_specific_fields') or {}
         lines = []
         orig_val = Utils.clean_val(raw_orig)
@@ -413,11 +414,11 @@ class ScripProfile:
     def build_primary_event_lines(rec: dict, part: dict, event_tag: str, witnesses: List[dict],
                                   vol: str, media_uid: str, target_software: str, resi: str,
                                   alt_names: list, scrip_fact_date: str, raw_event_date: str,
-                                  age: str) -> List[str]:
+                                  age: str, cfg: "General.GeneralRunConfig") -> List[str]:
         if event_tag != 'EVEN':
             return General.build_generic_primary_event_lines(
                 rec, part, event_tag, witnesses, vol, media_uid, target_software,
-                alt_names, raw_event_date, age)
+                alt_names, raw_event_date, age, cfg)
 
         extra_fields = rec.get('type_specific_fields') or {}
         claim_number = Utils.clean_val(extra_fields.get('claim_number'))
@@ -438,22 +439,22 @@ class ScripProfile:
         value_parts.extend(f"{k.replace('_', ' ').title()}: {Utils.clean_val(v)}"
                            for k, v in extra_fields.items() if k not in consumed and Utils.clean_val(v))
         scrip_value = "; ".join(value_parts)
-        scrip_place = Utils.clean_place(rec.get('event_place')) or resi or General.GENERAL_CONFIG['default_location']
+        scrip_place = Utils.clean_place(rec.get('event_place')) or resi or cfg.default_location
 
         lines = General.build_custom_fact_lines('Scrip', scrip_value, rec, part, vol, media_uid,
-                                                target_software, date=scrip_fact_date, place=scrip_place)
+                                                target_software, cfg, date=scrip_fact_date, place=scrip_place)
         if alt_names:
             alt_values = ", ".join(Utils.clean_val(a.get('value')) for a in alt_names)
             lines.append(f"2 NOTE Margin note suggests alternate spelling: {alt_values}")
-        lines.extend(General.build_witness_links(rec, witnesses, vol, target_software))
+        lines.extend(General.build_witness_links(rec, witnesses, vol, target_software, cfg))
         return lines
 
     @staticmethod
-    def volume_source_detail_fields(_v_clause: str) -> List[str]:
+    def volume_source_detail_fields(_v_clause: str, _cfg: "General.GeneralRunConfig") -> List[str]:
         return []
 
     @staticmethod
-    def media_caption(sheet: dict, vol: str, pages: str) -> str:
+    def media_caption(sheet: dict, vol: str, pages: str, _cfg: "General.GeneralRunConfig") -> str:
         first_rec = next(iter(sheet.get('records', [])), {})
         primary = General.get_by_semantic(first_rec, 'primary') or {}
         scrip_tf = first_rec.get('type_specific_fields') or {}
@@ -470,7 +471,8 @@ class ScripProfile:
         return f"Scrip Records - Vol {vol or 'Unknown'} - Page {pages or 'X'}"
 
     @staticmethod
-    def resolve_source_templates(json_data: dict, target_software: str) -> List[str]:
+    def resolve_source_templates(json_data: dict, target_software: str,
+                                 cfg: "General.GeneralRunConfig") -> List[str]:
         template_ids_used = set()
         for sheet in json_data.get('sheets', []):
             for rec in sheet.get('records', []):
@@ -479,7 +481,7 @@ class ScripProfile:
                     template_ids_used.add(tid)
         if not template_ids_used:
             return []
-        lines = get_scrip_template_sources(template_ids_used, target_software)
+        lines = get_scrip_template_sources(template_ids_used, target_software, cfg)
         if target_software == "RM":
             lines = lines + General.get_source_templates(template_ids_used)
         return lines

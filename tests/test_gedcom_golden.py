@@ -87,14 +87,9 @@ def normalize_gedcom(text: str) -> str:
 # Session-wide Archivist environment
 # ---------------------------------------------------------------------------
 
-_CENSUS_GLOBALS = (
-    "STATE", "COUNTY", "TOWNSHIP", "ENUMERATION_DISTRICT", "ROLL_NUMBER", "FILM_NUMBER",
-    "CENSUS_YEAR", "CENSUS_ERA", "APID_DB", "COLLECTION_NAME", "COLLECTION_URL",
-    "PUBLISHER", "PUB_LOC", "CALL_NUMBER", "REPOSITORY_LOC", "REPOSITORY",
-    "IMAGE_DIR", "CENSUS_SOURCE_ID", "COUNTRY", "DEFAULT_COLLECTION_NAME",
-)
-_GENERAL_GLOBALS = ("CALL_NUMBER", "COLLECTION_URL", "COLLECTION_NAME",
-                    "REPOSITORY", "REPOSITORY_LOC", "IMAGE_DIR")
+# Census.run_census_flavor and General.run_general_flavor both build a fresh
+# per-call RunConfig dataclass internally (ARCH-3) - neither mutates module
+# globals anymore, so no cross-fixture reset is needed here.
 
 
 @pytest.fixture(scope="session")
@@ -147,9 +142,6 @@ def archivist(tmp_path_factory):
         yield SimpleNamespace(
             Utils=Utils, Census=Census, General=General, Scrip=Scrip,
             out_dir=out_dir,
-            census_pristine={name: getattr(Census, name) for name in _CENSUS_GLOBALS},
-            general_pristine={name: getattr(General, name) for name in _GENERAL_GLOBALS},
-            general_config_pristine=dict(General.GENERAL_CONFIG),
         )
     finally:
         for k, v in saved_env.items():
@@ -160,14 +152,8 @@ def archivist(tmp_path_factory):
 
 
 def _reset_builder_state(archivist_ns):
-    """Restores the flavors' mutable module globals so fixtures cannot leak into each
-    other (run_census_flavor/run_general_flavor both keep state at module level)."""
-    for name, value in archivist_ns.census_pristine.items():
-        setattr(archivist_ns.Census, name, value)
-    for name, value in archivist_ns.general_pristine.items():
-        setattr(archivist_ns.General, name, value)
-    archivist_ns.General.GENERAL_CONFIG.clear()
-    archivist_ns.General.GENERAL_CONFIG.update(archivist_ns.general_config_pristine)
+    """Resets the only run-to-run state that still lives outside a RunConfig: Utils'
+    own module-level output settings."""
     archivist_ns.Utils.GEDCOM_OUTPUT_NAME = "golden.ged"
     archivist_ns.Utils.RESEARCHER = ""
     archivist_ns.Utils.ORG_NAME = ""

@@ -3,42 +3,17 @@ import hashlib
 import os
 import re
 import xml.etree.ElementTree as etree
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol, Tuple, Union
 
 import Utils
 
-GENERAL_CONFIG = {
-    'volume_num': '',
-    'register_source_id': '1',
-    'register_name': '',
-    'parish_name': 'Parish Name',
-    'parish_name_short': 'Parish',
-    'parish_location': 'City, State',
-    'volume_title': '',
-    'date_range_str': '',
-    'diocese': '',
-    'collection_url': '',
-    'collection_name': '',
-    'parish_file_name': 'Parish_Export',
-    'default_location': '',
-    'citation_detail': '',
-    'citation_text': '',
-    'role_clergy': 'Priest',
-    'role_default_witness': 'Witness',
-    'clergy_honorific': 'Father',
-}
-
-CALL_NUMBER = ""
-COLLECTION_URL = ""
-COLLECTION_NAME = ""
-REPOSITORY = ""
-REPOSITORY_LOC = ""
-# Default image directory (overridden per-record-type in apply_collection_metadata)
-IMAGE_DIR = Utils.safe_path(Utils.GENEALOGY_DIR, os.getenv("MEDIA_DIR", "Media"))
+# Frozen at import time; GeneralRunConfig's factory defaults reference these directly.
+_IMAGE_DIR_BASE = Utils.safe_path(Utils.GENEALOGY_DIR, os.getenv("MEDIA_DIR", "Media"))
 
 
 class Profile(Protocol):
-    def dynamic_source_id(self, vol_digits: str, rec: Optional[dict] = None) -> str: ...
+    def dynamic_source_id(self, vol_digits: str, cfg: "GeneralRunConfig", rec: Optional[dict] = None) -> str: ...
     def participant_uid(self, identity: str, role: str, occ: int) -> Optional[str]: ...
     def family_uid(self, identity: str) -> Optional[str]: ...
     def citation_title(self, rec: dict, part: dict, tag_name: str, year: str,
@@ -48,28 +23,34 @@ class Profile(Protocol):
     def citation_template_id(self, rec: dict, vol: str) -> Optional[int]: ...
     def citation_proof_status(self, computed_status: str, rec: Optional[dict] = None) -> str: ...
     def citation_quality_fields(self, rec: dict, part: dict, target_software: str) -> List[str]: ...
-    def citation_detail_fields(self, rec: dict, part: dict, page: str, vol: str,
-                               target_software: str) -> List[str]: ...
 
-    def citation_text_block(self, rec: dict, part: dict, raw_orig: str, raw_trans: str) -> List[str]: ...
+    def citation_detail_fields(self, rec: dict, part: dict, page: str, vol: str,
+                               target_software: str, cfg: "GeneralRunConfig") -> List[str]: ...
+
+    def citation_text_block(self, rec: dict, part: dict, raw_orig: str, raw_trans: str,
+                            cfg: "GeneralRunConfig") -> List[str]: ...
+
     def citation_uses_source_documents(self, rec: dict) -> bool: ...
     def primary_fact_date(self, rec: dict, is_primary: bool) -> str: ...
 
     def build_primary_event_lines(self, rec: dict, part: dict, event_tag: str, witnesses: List[dict],
                                   vol: str, media_uid: str, target_software: str, resi: str,
                                   alt_names: list, scrip_fact_date: str, raw_event_date: str,
-                                  age: str) -> List[str]: ...
+                                  age: str, cfg: "GeneralRunConfig") -> List[str]: ...
 
-    def volume_source_detail_fields(self, v_clause: str) -> List[str]: ...
-    def media_caption(self, sheet: dict, vol: str, pages: str) -> str: ...
-    def resolve_source_templates(self, json_data: dict, target_software: str) -> List[str]: ...
+    def volume_source_detail_fields(self, v_clause: str, cfg: "GeneralRunConfig") -> List[str]: ...
+    def media_caption(self, sheet: dict, vol: str, pages: str, cfg: "GeneralRunConfig") -> str: ...
+    def resolve_source_templates(self, json_data: dict, target_software: str,
+                                 cfg: "GeneralRunConfig") -> List[str]: ...
+
     def repository_defaults(self) -> Tuple[str, str]: ...
     def default_gedcom_output_name(self) -> Optional[str]: ...
 
 
 def build_generic_primary_event_lines(rec: dict, part: dict, event_tag: str, witnesses: List[dict],
                                       vol: str, media_uid: str, target_software: str,
-                                      alt_names: list, raw_event_date: str, age: str) -> List[str]:
+                                      alt_names: list, raw_event_date: str, age: str,
+                                      cfg: "GeneralRunConfig") -> List[str]:
     """Builds the primary-event GEDCOM block for non-Scrip events."""
     event_type = Utils.clean_val(rec.get('event_type'))
     lines = []
@@ -84,25 +65,25 @@ def build_generic_primary_event_lines(rec: dict, part: dict, event_tag: str, wit
         lines.append(f"2 TYPE {Utils.capitalize_text_string(event_type)}")
     if raw_event_date:
         lines.append(f"2 DATE {Utils.format_gedcom_date(raw_event_date)}")
-    lines.append(f"2 PLAC {Utils.clean_place(rec.get('event_place')) or GENERAL_CONFIG['default_location']}")
+    lines.append(f"2 PLAC {Utils.clean_place(rec.get('event_place')) or cfg.default_location}")
     if age:
         lines.append(f"2 AGE {age}")
     if alt_names:
         alt_values = ", ".join(Utils.clean_val(a.get('value')) for a in alt_names)
         lines.append(f"2 NOTE Margin note suggests alternate spelling: {alt_values}")
-    lines.extend(build_witness_links(rec, witnesses, vol, target_software))
-    lines.extend(build_general_citation(rec, part, event_tag, vol, media_uid,
+    lines.extend(build_witness_links(rec, witnesses, vol, target_software, cfg))
+    lines.extend(build_general_citation(rec, part, event_tag, vol, media_uid, cfg,
                                         Utils.get_proof_status(raw_event_date), target_software))
     return lines
 
 
 class GeneralProfile:
     @staticmethod
-    def dynamic_source_id(vol_digits: str, _rec: Optional[dict] = None) -> str:
-        if GENERAL_CONFIG.get("platform_source_id"):
-            return f"@S{GENERAL_CONFIG['platform_source_id']}@"
+    def dynamic_source_id(vol_digits: str, cfg: "GeneralRunConfig", _rec: Optional[dict] = None) -> str:
+        if cfg.platform_source_id:
+            return f"@S{cfg.platform_source_id}@"
 
-        base_id = re.sub(r'\D', '', f"{GENERAL_CONFIG.get('register_source_id', '1')}")
+        base_id = re.sub(r'\D', '', f"{cfg.register_source_id or '1'}")
         if base_id.endswith('001') and len(base_id) > 1:
             base_id = base_id[:-3]
         return f"@S{base_id or '1'}{vol_digits.zfill(3)}@"
@@ -162,7 +143,7 @@ class GeneralProfile:
     # noinspection DuplicatedCode
     @staticmethod
     def citation_detail_fields(rec: dict, part: dict, page: str, vol: str,
-                               target_software: str) -> List[str]:
+                               target_software: str, cfg: "GeneralRunConfig") -> List[str]:
         _ = vol
         if target_software != "RM":
             return []
@@ -175,7 +156,7 @@ class GeneralProfile:
         ref_bits = [b for b in (f"Claim {claim_num}" if claim_num else "",
                                 f"Affdt {affdt_num}" if affdt_num else "") if b]
         person_name = f"{std_g} {std_s}".strip()
-        parish_loc = Utils.clean_val(GENERAL_CONFIG.get('parish_location'))
+        parish_loc = Utils.clean_val(cfg.parish_location)
         ref_num_str = ('; '.join(ref_bits) if ref_bits
                        else (f"Record {rec.get('record_number') or rec_id}"
                              if rec_id and rec_id != 'Unknown' else ""))
@@ -183,8 +164,8 @@ class GeneralProfile:
             ("Page", f"Page {page}" if page and page != 'X' else ""),
             ("SourceDetailPerson", person_name),
             ("Location", parish_loc),
-            ("Repository", Utils.clean_val(REPOSITORY)),
-            ("URL", Utils.clean_val(COLLECTION_URL)),
+            ("Repository", Utils.clean_val(cfg.repository)),
+            ("URL", Utils.clean_val(cfg.collection_url)),
             ("Accessed", ""),
             ("RefNumber", ref_num_str),
         ]
@@ -199,7 +180,8 @@ class GeneralProfile:
 
     # noinspection DuplicatedCode
     @staticmethod
-    def citation_text_block(_rec: dict, _part: dict, raw_orig: str, raw_trans: str) -> List[str]:
+    def citation_text_block(_rec: dict, _part: dict, raw_orig: str, raw_trans: str,
+                            cfg: "GeneralRunConfig") -> List[str]:
         orig_val = Utils.clean_val(raw_orig)
         trans_val = Utils.clean_val(raw_trans)
         norm_orig = re.sub(r'\s+', ' ', orig_val).strip().lower() if orig_val else orig_val
@@ -211,7 +193,7 @@ class GeneralProfile:
             if single_text:
                 lines.append(single_text)
         else:
-            citation_detail_header = GENERAL_CONFIG.get('citation_detail', '')
+            citation_detail_header = cfg.citation_detail
             if citation_detail_header:
                 lines.append(f"4 TEXT {citation_detail_header}")
                 trans_text = Utils.wrap_text(trans_val, '5 CONT')
@@ -220,7 +202,7 @@ class GeneralProfile:
             if trans_text:
                 lines.append(trans_text)
 
-            citation_text_header = GENERAL_CONFIG.get('citation_text', '')
+            citation_text_header = cfg.citation_text
             if citation_text_header:
                 lines.append(f"3 NOTE {citation_text_header}")
                 orig_text = Utils.wrap_text(orig_val, '4 CONT')
@@ -242,18 +224,18 @@ class GeneralProfile:
     def build_primary_event_lines(rec: dict, part: dict, event_tag: str, witnesses: List[dict],
                                   vol: str, media_uid: str, target_software: str, _resi: str,
                                   alt_names: list, _scrip_fact_date: str, raw_event_date: str,
-                                  age: str) -> List[str]:
+                                  age: str, cfg: "GeneralRunConfig") -> List[str]:
         return build_generic_primary_event_lines(rec, part, event_tag, witnesses, vol, media_uid,
-                                                 target_software, alt_names, raw_event_date, age)
+                                                 target_software, alt_names, raw_event_date, age, cfg)
 
     # noinspection DuplicatedCode
     @staticmethod
-    def volume_source_detail_fields(v_clause: str) -> List[str]:
+    def volume_source_detail_fields(v_clause: str, cfg: "GeneralRunConfig") -> List[str]:
         tid = 10009
-        primary_creator = Utils.clean_val(GENERAL_CONFIG.get('parish_name'))
-        dept = Utils.clean_val(GENERAL_CONFIG.get('diocese')) or Utils.clean_val(GENERAL_CONFIG.get('parish_location'))
-        source_desc = f"{GENERAL_CONFIG.get('register_name', '')}{v_clause}".strip()
-        date_str = Utils.clean_val(GENERAL_CONFIG.get('date_range_str'))
+        primary_creator = Utils.clean_val(cfg.parish_name)
+        dept = Utils.clean_val(cfg.diocese) or Utils.clean_val(cfg.parish_location)
+        source_desc = f"{cfg.register_name}{v_clause}".strip()
+        date_str = Utils.clean_val(cfg.date_range_str)
         # RM's <...> omission logic only treats a field as blank when it's declared
         # with an empty VALUE, not when it's missing from the list entirely - so
         # every master field the template defines is always declared.
@@ -263,16 +245,16 @@ class GeneralProfile:
         lines.extend(["2 FIELD", "3 NAME Date", f"3 VALUE {date_str}"])
         lines.extend(["2 FIELD", "3 NAME SourceDescription", f"3 VALUE {source_desc}"])
         lines.extend(["2 FIELD", "3 NAME Person", "3 VALUE"])
-        lines.extend(["2 FIELD", "3 NAME Repository", f"3 VALUE {REPOSITORY}"])
-        lines.extend(["2 FIELD", "3 NAME PublishLocation", f"3 VALUE {REPOSITORY_LOC}"])
+        lines.extend(["2 FIELD", "3 NAME Repository", f"3 VALUE {cfg.repository}"])
+        lines.extend(["2 FIELD", "3 NAME PublishLocation", f"3 VALUE {cfg.repository_loc}"])
         return lines
 
     @staticmethod
-    def media_caption(_sheet: dict, vol: str, pages: str) -> str:
-        return f"{GENERAL_CONFIG['parish_name_short']} - Vol {vol or 'Unknown'} - Page {pages or 'X'}"
+    def media_caption(_sheet: dict, vol: str, pages: str, cfg: "GeneralRunConfig") -> str:
+        return f"{cfg.parish_name_short} - Vol {vol or 'Unknown'} - Page {pages or 'X'}"
 
     @staticmethod
-    def resolve_source_templates(_json_data: dict, target_software: str) -> List[str]:
+    def resolve_source_templates(_json_data: dict, target_software: str, _cfg: "GeneralRunConfig") -> List[str]:
         if target_software == "RM":
             return get_source_templates({10009})
         return []
@@ -286,19 +268,50 @@ class GeneralProfile:
         return None
 
 
-_ACTIVE_PROFILE: Profile = GeneralProfile()
-
-
-def set_active_profile(profile: Profile) -> None:
-    global _ACTIVE_PROFILE
-    _ACTIVE_PROFILE = profile
+@dataclass
+class GeneralRunConfig:
+    """Per-call run state for the General flavor pipeline - constructed once per
+    run_general_flavor() call and threaded explicitly, replacing the module-level
+    GENERAL_CONFIG dict, CALL_NUMBER/COLLECTION_URL/COLLECTION_NAME/REPOSITORY/
+    REPOSITORY_LOC/IMAGE_DIR globals, and the _ACTIVE_PROFILE global."""
+    profile: Profile = field(default_factory=GeneralProfile)
+    call_number: str = ""
+    collection_url: str = ""
+    collection_name: str = ""
+    repository: str = ""
+    repository_loc: str = ""
+    image_dir: str = field(default_factory=lambda: _IMAGE_DIR_BASE)
+    volume_num: str = ''
+    register_source_id: str = '1'
+    register_name: str = ''
+    parish_name: str = 'Parish Name'
+    parish_name_short: str = 'Parish'
+    parish_location: str = 'City, State'
+    volume_title: str = ''
+    date_range_str: str = ''
+    diocese: str = ''
+    # GENERAL_CONFIG's old 'collection_url'/'collection_name' dict keys - distinct from
+    # the collection_url/collection_name fields above (which came from the module globals).
+    # Never populated by apply_collection_metadata (only reads CM's uppercase COLLECTION_URL/
+    # COLLECTION_NAME into the fields above), so this stays at its default in practice - a
+    # pre-existing quirk preserved as-is, not something ARCH-3 fixes.
+    task_collection_url: str = ''
+    task_collection_name: str = ''
+    parish_file_name: str = 'Parish_Export'
+    default_location: str = ''
+    citation_detail: str = ''
+    citation_text: str = ''
+    role_clergy: str = 'Priest'
+    role_default_witness: str = 'Witness'
+    clergy_honorific: str = 'Father'
+    platform_source_id: str = ''
 
 
 FAMILY_SEMANTICS = ('primary', 'spouse', 'child', 'father', 'mother', 'father_in_law', 'mother_in_law')
 
 
-def extract_volume(sheet: dict) -> str:
-    """Aggressively extracts volume from metadata or sheet root, falling back to global CONFIG."""
+def extract_volume(sheet: dict, cfg: "GeneralRunConfig") -> str:
+    """Aggressively extracts volume from metadata or sheet root, falling back to cfg."""
     meta = sheet.get('document_metadata', {})
     if isinstance(meta, dict):
         for k, v in meta.items():
@@ -309,12 +322,12 @@ def extract_volume(sheet: dict) -> str:
         if k.lower() == 'volume' and Utils.clean_val(v):
             return Utils.clean_val(v)
 
-    return Utils.clean_val(GENERAL_CONFIG.get('volume_num'))
+    return Utils.clean_val(cfg.volume_num)
 
 
-def get_dynamic_source_id(vol_val: str, rec: Optional[dict] = None) -> str:
+def get_dynamic_source_id(vol_val: str, cfg: "GeneralRunConfig", rec: Optional[dict] = None) -> str:
     vol_digits = re.sub(r'\D', '', f"{vol_val or '1'}") or '1'
-    return _ACTIVE_PROFILE.dynamic_source_id(vol_digits, rec)
+    return cfg.profile.dynamic_source_id(vol_digits, cfg, rec)
 
 
 def get_by_semantic(rec: dict, semantic: str) -> Optional[dict]:
@@ -331,11 +344,11 @@ def get_all_by_semantic(rec: dict, semantics: Union[str, Tuple[str, ...]]) -> Li
     return [p for p in rec.get('participants', []) if p.get('role_semantic') in wanted]
 
 
-def get_role_name(part: dict) -> str:
+def get_role_name(part: dict, cfg: "GeneralRunConfig") -> str:
     """The display/citation name for a participant's role."""
     if part.get('is_priest'):
-        return GENERAL_CONFIG['role_clergy']
-    return Utils.capitalize_text_string(part.get('role_name')) or GENERAL_CONFIG['role_default_witness']
+        return cfg.role_clergy
+    return Utils.capitalize_text_string(part.get('role_name')) or cfg.role_default_witness
 
 
 def resolve_family_links(rec: dict) -> Dict[str, Any]:
@@ -387,8 +400,8 @@ def evaluate_task_priority(task_note: str) -> tuple:
     return 3, Utils.REVIEW_COLOR, "General Review"
 
 
-def generate_uid(rec: dict, part: dict, vol: str) -> str:
-    src_id = re.sub(r'\D', '', get_dynamic_source_id(vol))
+def generate_uid(rec: dict, part: dict, vol: str, cfg: "GeneralRunConfig") -> str:
+    src_id = re.sub(r'\D', '', get_dynamic_source_id(vol, cfg))
 
     link_id = Utils.clean_val((part.get('type_specific_fields') or {}).get('link_id'))
     if link_id:
@@ -412,7 +425,7 @@ def generate_uid(rec: dict, part: dict, vol: str) -> str:
     pos = next((i for i, p in enumerate(participants) if p is part), None)
     occ = same_role.index(pos) if pos in same_role else 0
 
-    override = _ACTIVE_PROFILE.participant_uid(identity, role, occ)
+    override = cfg.profile.participant_uid(identity, role, occ)
     if override:
         return override
 
@@ -421,10 +434,10 @@ def generate_uid(rec: dict, part: dict, vol: str) -> str:
     return f"{src_id}{numeric_id:010d}"
 
 
-def generate_media_uid(meta: dict, vol: str) -> str:
+def generate_media_uid(meta: dict, vol: str, cfg: "GeneralRunConfig") -> str:
     """Generates a deterministic 10-digit numerical UID for a media file."""
     file_name = Utils.clean_val(meta.get('file_name'))
-    image_dir = Utils.clean_val(IMAGE_DIR)
+    image_dir = Utils.clean_val(cfg.image_dir)
 
     if file_name:
         if image_dir:
@@ -559,16 +572,16 @@ def get_source_templates(template_ids_used: set) -> List[str]:
     return lines
 
 
-def generate_fam_uid(rec: dict, vol: str) -> str:
+def generate_fam_uid(rec: dict, vol: str, cfg: "GeneralRunConfig") -> str:
     pid = Utils.clean_val(rec.get('lac_pid'))
     rec_id = Utils.clean_val(rec.get('record_id'))
     identity = pid or rec_id
 
-    override = _ACTIVE_PROFILE.family_uid(identity)
+    override = cfg.profile.family_uid(identity)
     if override:
         return override
 
-    src_id = re.sub(r'\D', '', get_dynamic_source_id(vol, rec))
+    src_id = re.sub(r'\D', '', get_dynamic_source_id(vol, cfg, rec))
     page_str = Utils.clean_val(rec.get('page'))
     unique_string = f"fam_{vol}_{page_str}_{identity}"
     numeric_id = int(hashlib.md5(unique_string.encode('utf-8')).hexdigest(), 16) % (10 ** 10)
@@ -576,24 +589,26 @@ def generate_fam_uid(rec: dict, vol: str) -> str:
 
 
 def _build_citation_block(rec: dict, part: dict, tag_name: str, vol: str, media_uid: str,
-                          proof_status: str, target_software: str, document_type: Optional[str] = None,
+                          proof_status: str, target_software: str, cfg: "GeneralRunConfig",
+                          document_type: Optional[str] = None,
                           page: Optional[str] = None, citation_text: Optional[str] = None,
                           citation_details: Optional[str] = None,
                           doc_media_uid: Optional[str] = None) -> str:
     page = Utils.clean_val(page if page is not None else rec.get('page')) or 'X'
     year = Utils.clean_val(rec.get('year')) or 'Unknown'
 
-    titl = _ACTIVE_PROFILE.citation_title(rec, part, tag_name, year, document_type)
-    page_line = _ACTIVE_PROFILE.citation_page(rec, part, page)
+    profile = cfg.profile
+    titl = profile.citation_title(rec, part, tag_name, year, document_type)
+    page_line = profile.citation_page(rec, part, page)
 
-    template_id = _ACTIVE_PROFILE.citation_template_id(rec, vol)
-    sour_id = f"@S{template_id}@" if template_id else get_dynamic_source_id(vol, rec)
+    template_id = profile.citation_template_id(rec, vol)
+    sour_id = f"@S{template_id}@" if template_id else get_dynamic_source_id(vol, cfg, rec)
 
     computed_status = proof_status
     try:
-        proof_status = _ACTIVE_PROFILE.citation_proof_status(computed_status, rec=rec)
+        proof_status = profile.citation_proof_status(computed_status, rec=rec)
     except TypeError:
-        proof_status = _ACTIVE_PROFILE.citation_proof_status(computed_status)
+        proof_status = profile.citation_proof_status(computed_status)
 
     block = [
         f"2 _PROOF {proof_status}",
@@ -601,16 +616,16 @@ def _build_citation_block(rec: dict, part: dict, tag_name: str, vol: str, media_
         titl,
         page_line,
     ]
-    block.extend(_ACTIVE_PROFILE.citation_detail_fields(rec, part, page, vol, target_software))
+    block.extend(profile.citation_detail_fields(rec, part, page, vol, target_software, cfg))
     block.append("3 DATA")
 
     raw_orig = citation_text if citation_text is not None else rec.get('citation_text')
     raw_trans = citation_details if citation_details is not None else rec.get('citation_details')
-    block.extend(_ACTIVE_PROFILE.citation_text_block(rec, part, raw_orig, raw_trans))
+    block.extend(profile.citation_text_block(rec, part, raw_orig, raw_trans, cfg))
 
     rec_id = Utils.clean_val(rec.get('record_id')) or 'Unknown'
-    if hasattr(_ACTIVE_PROFILE, "citation_quality_fields"):
-        block.extend(_ACTIVE_PROFILE.citation_quality_fields(rec, part, target_software))
+    if hasattr(profile, "citation_quality_fields"):
+        block.extend(profile.citation_quality_fields(rec, part, target_software))
     else:
         refn = Utils.clean_val(rec.get('record_number')) or rec_id
         if target_software == "RM":
@@ -661,14 +676,15 @@ def _build_citation_block(rec: dict, part: dict, tag_name: str, vol: str, media_
 
 
 def build_general_citation(rec: dict, part: dict, tag_name: str, vol: str, media_uid: str,
-                           proof_status: str = "proven", target_software: str = "RM") -> List[str]:
+                           cfg: "GeneralRunConfig", proof_status: str = "proven",
+                           target_software: str = "RM") -> List[str]:
     """Constructs the source citation blocks for an event."""
-    if not _ACTIVE_PROFILE.citation_uses_source_documents(rec):
-        return [_build_citation_block(rec, part, tag_name, vol, media_uid, proof_status, target_software)]
+    if not cfg.profile.citation_uses_source_documents(rec):
+        return [_build_citation_block(rec, part, tag_name, vol, media_uid, proof_status, target_software, cfg)]
 
     source_documents = rec.get('source_documents') or []
     if not source_documents:
-        return [_build_citation_block(rec, part, tag_name, vol, media_uid, proof_status, target_software)]
+        return [_build_citation_block(rec, part, tag_name, vol, media_uid, proof_status, target_software, cfg)]
 
     blocks = []
     for doc in source_documents:
@@ -681,7 +697,7 @@ def build_general_citation(rec: dict, part: dict, tag_name: str, vol: str, media
         else:
             doc_media_uid = media_uid
         blocks.append(_build_citation_block(
-            rec, part, tag_name, vol, media_uid, proof_status, target_software,
+            rec, part, tag_name, vol, media_uid, proof_status, target_software, cfg,
             document_type=doc.get('document_type'), page=doc.get('page'),
             citation_text=doc.get('citation_text'),
             citation_details=doc.get('citation_details'),
@@ -691,7 +707,8 @@ def build_general_citation(rec: dict, part: dict, tag_name: str, vol: str, media
 
 
 def build_custom_fact_lines(fact_name: str, value: str, rec: dict, part: dict, vol: str, media_uid: str,
-                            target_software: str, date: str = "", place: str = "") -> List[str]:
+                            target_software: str, cfg: "GeneralRunConfig",
+                            date: str = "", place: str = "") -> List[str]:
     """Renders a RootsMagic custom fact as an EVEN/TYPE block based on FactTypes.json config."""
     entry = Utils.FACT_TYPES.get('person', {}).get(fact_name, {})
     val = Utils.clean_val(value) if entry.get('use_value', True) else ""
@@ -706,30 +723,31 @@ def build_custom_fact_lines(fact_name: str, value: str, rec: dict, part: dict, v
         lines.append(f"2 DATE {fact_date}")
     if fact_place:
         lines.append(f"2 PLAC {fact_place}")
-    lines.extend(build_general_citation(rec, part, fact_name, vol, media_uid, target_software=target_software))
+    lines.extend(build_general_citation(rec, part, fact_name, vol, media_uid, cfg, target_software=target_software))
     return lines
 
 
-def build_witness_links(rec: dict, witnesses: List[dict], vol: str, target_software: str) -> List[str]:
+def build_witness_links(rec: dict, witnesses: List[dict], vol: str, target_software: str,
+                        cfg: "GeneralRunConfig") -> List[str]:
     """Builds witness association links (_SHAR for RM, NOTE summary for others)."""
     if not witnesses:
         return []
     if target_software == "RM":
         lines = []
         for p in witnesses:
-            lines.append(f"2 _SHAR @I{generate_uid(rec, p, vol)}@\n3 ROLE {get_role_name(p)}")
+            lines.append(f"2 _SHAR @I{generate_uid(rec, p, vol, cfg)}@\n3 ROLE {get_role_name(p, cfg)}")
         return lines
 
     parts = []
     for p in witnesses:
         name = f"{Utils.clean_val(p.get('std_given'))} {Utils.clean_val(p.get('std_surname'))}".strip()
-        role = get_role_name(p)
+        role = get_role_name(p, cfg)
         parts.append(f"{name} ({role})" if name else role)
     return [f"2 NOTE Witnesses: {', '.join(parts)}"]
 
 
 def build_individual(uid: str, rec: dict, part: dict, vol: str, media_uid: str, gedcom_date: str,
-                     any_part_review: bool, target_software: str) -> tuple:
+                     any_part_review: bool, target_software: str, cfg: "GeneralRunConfig") -> tuple:
     """Builds a single individual's INDI block, along with their Task block if flagged for review."""
     event_type = Utils.clean_val(rec.get('event_type'))
     event_tag = Utils.get_event_gedcom_tag(event_type)
@@ -737,7 +755,7 @@ def build_individual(uid: str, rec: dict, part: dict, vol: str, media_uid: str, 
     is_bap_or_chr = event_tag in ("BAPM", "CHR")
     semantic = part.get('role_semantic')
     is_primary = semantic == 'primary'
-    scrip_fact_date = _ACTIVE_PROFILE.primary_fact_date(rec, is_primary)
+    scrip_fact_date = cfg.profile.primary_fact_date(rec, is_primary)
     is_parent = semantic in ('father', 'mother', 'father_in_law', 'mother_in_law')
     is_deceased = bool(part.get('deceased')) or bool(part.get('is_deceased'))
 
@@ -804,14 +822,14 @@ def build_individual(uid: str, rec: dict, part: dict, vol: str, media_uid: str, 
         if target_software == "RM":
             indi.extend([f"1 _COLOR {color_code}", f"1 _TASK @T{uid}@"])
 
-            citation_blocks = build_general_citation(rec, part, f"Review {event_tag}", vol, media_uid,
+            citation_blocks = build_general_citation(rec, part, f"Review {event_tag}", vol, media_uid, cfg,
                                                      target_software=target_software)
             raw_cit = [line for block in citation_blocks for line in block.split('\n')]
 
             task_citation = Utils.dedent_citation_lines(raw_cit, skip_at_level=(2, "_PROOF"))
 
-            weblink = Utils.weblink_lines(Utils.clean_val(GENERAL_CONFIG.get('collection_url')),
-                                          GENERAL_CONFIG.get('collection_name', 'Collection Link'), target_software)
+            weblink = Utils.weblink_lines(Utils.clean_val(cfg.task_collection_url),
+                                          cfg.task_collection_name or 'Collection Link', target_software)
 
             task_lines = [
                 f"0 @T{uid}@ _TASK", f"1 DESC {std_s or '[No Surname]'}, {std_g or '[No Given Name]'} "
@@ -841,7 +859,7 @@ def build_individual(uid: str, rec: dict, part: dict, vol: str, media_uid: str, 
     if Utils.clean_val(part.get('prefix')):
         indi.append(f"2 NPFX {Utils.clean_val(part.get('prefix'))}")
     elif part.get('is_priest'):
-        indi.append(f"2 NPFX {GENERAL_CONFIG['clergy_honorific']}")
+        indi.append(f"2 NPFX {cfg.clergy_honorific}")
 
     if Utils.clean_val(part.get('suffix')):
         indi.append(f"2 NSFX {Utils.clean_val(part.get('suffix'))}")
@@ -851,33 +869,34 @@ def build_individual(uid: str, rec: dict, part: dict, vol: str, media_uid: str, 
 
     if dit_name:
         indi.extend([f"1 NAME {std_g} /{std_s_base} dit {dit_name}/", f"1 NAME {std_g} /{dit_name}/"])
-        indi.extend(build_custom_fact_lines('dit Name', dit_name, rec, part, vol, media_uid, target_software,
+        indi.extend(build_custom_fact_lines('dit Name', dit_name, rec, part, vol, media_uid, target_software, cfg,
                                             date=scrip_fact_date))
 
     alt_names = [n for n in (part.get('alternate_names') or []) if Utils.clean_val(n.get('value'))]
     for alt in alt_names:
         alt_giv, alt_sur = Utils.split_full_name(Utils.clean_val(alt.get('value')))
         indi.append(f"1 NAME {alt_giv} /{alt_sur}/")
-        indi.extend(build_general_citation(rec, part, 'Alternate Name', vol, media_uid, "proposed", target_software))
+        indi.extend(build_general_citation(rec, part, 'Alternate Name', vol, media_uid, cfg,
+                                           "proposed", target_software))
 
     if sex:
         indi.append(f"1 SEX {sex}")
     if race:
-        indi.extend(build_custom_fact_lines('Race', race, rec, part, vol, media_uid, target_software))
+        indi.extend(build_custom_fact_lines('Race', race, rec, part, vol, media_uid, target_software, cfg))
     if religion:
         reli_lines = [f"1 RELI {religion}"]
         if scrip_fact_date:
             reli_lines.append(f"2 DATE {scrip_fact_date}")
         indi.append("\n".join(reli_lines))
-        indi.extend(build_general_citation(rec, part, "RELI", vol, media_uid, target_software=target_software))
+        indi.extend(build_general_citation(rec, part, "RELI", vol, media_uid, cfg, target_software=target_software))
 
-    final_occu = GENERAL_CONFIG['role_clergy'] if part.get('is_priest') else occu
+    final_occu = cfg.role_clergy if part.get('is_priest') else occu
     if final_occu:
         occu_lines = [f"1 OCCU {final_occu}"]
         if scrip_fact_date:
             occu_lines.append(f"2 DATE {scrip_fact_date}")
         indi.append("\n".join(occu_lines))
-        indi.extend(build_general_citation(rec, part, "OCCU", vol, media_uid, target_software=target_software))
+        indi.extend(build_general_citation(rec, part, "OCCU", vol, media_uid, cfg, target_software=target_software))
 
     address = Utils.clean_val(part.get('address'))
     if resi or address:
@@ -889,14 +908,15 @@ def build_individual(uid: str, rec: dict, part: dict, vol: str, media_uid: str, 
         if address:
             resi_lines.append(f"3 PLAS {address}")
         indi.append("\n".join(resi_lines))
-        indi.extend(build_general_citation(rec, part, "RESI", vol, media_uid, target_software=target_software))
+        indi.extend(build_general_citation(rec, part, "RESI", vol, media_uid, cfg, target_software=target_software))
 
     for fact in part.get('facts', []) or []:
         fact_type = Utils.clean_val(fact.get('fact_type', ''))
         if not fact_type:
             continue
         indi.extend(build_custom_fact_lines(fact_type, fact.get('value', ''), rec, part, vol, media_uid,
-                                            target_software, date=fact.get('date', ''), place=fact.get('place', '')))
+                                            target_software, cfg, date=fact.get('date', ''),
+                                            place=fact.get('place', '')))
 
     if b_date or b_place:
         indi.append("1 BIRT")
@@ -904,7 +924,7 @@ def build_individual(uid: str, rec: dict, part: dict, vol: str, media_uid: str, 
             indi.append(f"2 DATE {b_date}")
         if b_place:
             indi.append(f"2 PLAC {b_place}")
-        indi.extend(build_general_citation(rec, part, "BIRT", vol, media_uid, Utils.get_proof_status(b_date),
+        indi.extend(build_general_citation(rec, part, "BIRT", vol, media_uid, cfg, Utils.get_proof_status(b_date),
                                            target_software))
 
     if d_date or d_place:
@@ -915,19 +935,19 @@ def build_individual(uid: str, rec: dict, part: dict, vol: str, media_uid: str, 
             indi.append(f"2 PLAC {d_place}")
         if age:
             indi.append(f"2 AGE {age}")
-        indi.extend(build_general_citation(rec, part, "DEAT", vol, media_uid, Utils.get_proof_status(d_date),
+        indi.extend(build_general_citation(rec, part, "DEAT", vol, media_uid, cfg, Utils.get_proof_status(d_date),
                                            target_software))
 
     if is_primary and not is_family_evt:
         witnesses = [p for p in rec.get('participants', [])
                      if p.get('role_semantic') not in FAMILY_SEMANTICS and p.get('role_semantic') != 'commissioner']
 
-        indi.extend(_ACTIVE_PROFILE.build_primary_event_lines(
+        indi.extend(cfg.profile.build_primary_event_lines(
             rec, part, event_tag, witnesses, vol, media_uid, target_software,
-            resi, alt_names, scrip_fact_date, raw_event_date, age))
+            resi, alt_names, scrip_fact_date, raw_event_date, age, cfg))
 
     if get_by_semantic(rec, 'primary'):
-        f_uid = generate_fam_uid(rec, vol)
+        f_uid = generate_fam_uid(rec, vol, cfg)
         links = resolve_family_links(rec)
         has_parents = bool(get_all_by_semantic(rec, ('father', 'mother')))
         has_in_laws = bool(get_all_by_semantic(rec, ('father_in_law', 'mother_in_law')))
@@ -953,7 +973,7 @@ def build_individual(uid: str, rec: dict, part: dict, vol: str, media_uid: str, 
     return [line for line in indi if line], task_block, needs_review, folder_name
 
 
-def build_family(rec: dict, vol: str, media_uid: str, target_software: str) -> list:
+def build_family(rec: dict, vol: str, media_uid: str, target_software: str, cfg: "GeneralRunConfig") -> list:
     """Builds FAM records for primary's own family and for primary's and spouse's parents."""
     primary = get_by_semantic(rec, 'primary')
     if not primary:
@@ -962,7 +982,7 @@ def build_family(rec: dict, vol: str, media_uid: str, target_software: str) -> l
     spouse = get_by_semantic(rec, 'spouse')
     children = get_all_by_semantic(rec, 'child')
     links = resolve_family_links(rec)
-    fam_uid = generate_fam_uid(rec, vol)
+    fam_uid = generate_fam_uid(rec, vol, cfg)
     event_type = Utils.clean_val(rec.get('event_type'))
 
     fams = []
@@ -973,10 +993,10 @@ def build_family(rec: dict, vol: str, media_uid: str, target_software: str) -> l
         p_husb, p_wife = assign_spouses_by_sex(p_a, p_b)
         p_fam = [f"0 @F{fam_uid}{suffix}@ FAM"]
         if p_husb:
-            p_fam.append(f"1 HUSB @I{generate_uid(rec, p_husb, vol)}@")
+            p_fam.append(f"1 HUSB @I{generate_uid(rec, p_husb, vol, cfg)}@")
         if p_wife:
-            p_fam.append(f"1 WIFE @I{generate_uid(rec, p_wife, vol)}@")
-        p_fam.append(f"1 CHIL @I{generate_uid(rec, ch, vol)}@")
+            p_fam.append(f"1 WIFE @I{generate_uid(rec, p_wife, vol, cfg)}@")
+        p_fam.append(f"1 CHIL @I{generate_uid(rec, ch, vol, cfg)}@")
         fams.append("\n".join(p_fam))
 
     parents = get_all_by_semantic(rec, ('father', 'mother'))
@@ -986,17 +1006,17 @@ def build_family(rec: dict, vol: str, media_uid: str, target_software: str) -> l
         husb, wife = assign_spouses_by_sex(primary, spouse)
         main_fam = [f"0 @F{fam_uid}{links['main_suffix']}@ FAM"]
         if husb:
-            main_fam.append(f"1 HUSB @I{generate_uid(rec, husb, vol)}@")
+            main_fam.append(f"1 HUSB @I{generate_uid(rec, husb, vol, cfg)}@")
         if wife:
-            main_fam.append(f"1 WIFE @I{generate_uid(rec, wife, vol)}@")
+            main_fam.append(f"1 WIFE @I{generate_uid(rec, wife, vol, cfg)}@")
         for child in children:
-            main_fam.append(f"1 CHIL @I{generate_uid(rec, child, vol)}@")
+            main_fam.append(f"1 CHIL @I{generate_uid(rec, child, vol, cfg)}@")
 
         if Utils.is_family_event(event_type):
             event_tag = Utils.get_event_gedcom_tag(event_type)
             event_date = Utils.format_gedcom_date(Utils.clean_val(rec.get('event_date')))
             main_fam.extend([f"1 {event_tag}", f"2 DATE {event_date}" if event_date else "",
-                             f"2 PLAC {Utils.clean_place(rec.get('event_place')) or GENERAL_CONFIG['default_location']}"])  # noqa: E501
+                             f"2 PLAC {Utils.clean_place(rec.get('event_place')) or cfg.default_location}"])
 
             if Utils.clean_val(primary.get('age')):
                 slot = "HUSB" if husb is primary else "WIFE"
@@ -1017,8 +1037,8 @@ def build_family(rec: dict, vol: str, media_uid: str, target_software: str) -> l
             witnesses = [p for p in rec.get('participants', [])
                          if p.get('role_semantic') not in ('primary', 'spouse')
                          and p.get('role_semantic') != 'commissioner']
-            main_fam.extend(build_witness_links(rec, witnesses, vol, target_software))
-            main_fam.extend(build_general_citation(rec, primary, event_tag, vol, media_uid,
+            main_fam.extend(build_witness_links(rec, witnesses, vol, target_software, cfg))
+            main_fam.extend(build_general_citation(rec, primary, event_tag, vol, media_uid, cfg,
                                                    Utils.get_proof_status(event_date), target_software))
 
         fams.append("\n".join([line for line in main_fam if line]))
@@ -1032,10 +1052,10 @@ def build_family(rec: dict, vol: str, media_uid: str, target_software: str) -> l
         husb, wife = assign_spouses_by_sex(parent_a, parent_b)
         fam_tag = [f"0 @F{fam_uid}{links['primary_parents_suffix']}@ FAM"]
         if husb:
-            fam_tag.append(f"1 HUSB @I{generate_uid(rec, husb, vol)}@")
+            fam_tag.append(f"1 HUSB @I{generate_uid(rec, husb, vol, cfg)}@")
         if wife:
-            fam_tag.append(f"1 WIFE @I{generate_uid(rec, wife, vol)}@")
-        fam_tag.append(f"1 CHIL @I{generate_uid(rec, primary, vol)}@")
+            fam_tag.append(f"1 WIFE @I{generate_uid(rec, wife, vol, cfg)}@")
+        fam_tag.append(f"1 CHIL @I{generate_uid(rec, primary, vol, cfg)}@")
         fams.append("\n".join(fam_tag))
 
     return fams
@@ -1051,48 +1071,49 @@ def get_source_root(target_software: str) -> list:
         Utils.ANCESTRY_GROUP_URL, "Ancestry Group", target_software)
 
 
-def get_volume_sources(volumes_used: set, target_software: str) -> list:
+def get_volume_sources(volumes_used: set, target_software: str, cfg: "GeneralRunConfig") -> list:
     """Generates register-specific source records dynamically based on volumes used."""
-    loc_full = GENERAL_CONFIG['parish_location']
+    loc_full = cfg.parish_location
     sour_lines = []
 
     for vol in sorted(list(volumes_used)):
-        s_id = get_dynamic_source_id(vol)
+        s_id = get_dynamic_source_id(vol, cfg)
         v_clause = f", Volume {vol}" if vol else ""
-        v_title = f"{GENERAL_CONFIG['volume_title']}{v_clause}"
+        v_title = f"{cfg.volume_title}{v_clause}"
 
         if target_software == "RM":
             block = [f"0 {s_id} SOUR",
-                     f"1 ABBR {GENERAL_CONFIG['parish_name']} {v_title}",
+                     f"1 ABBR {cfg.parish_name} {v_title}",
                      f"1 REFN {s_id.replace('@S', '').replace('@', '')}",
-                     f"1 TITL {GENERAL_CONFIG['parish_name']}, , {GENERAL_CONFIG['register_name']}{v_clause} ; "
-                     f"{v_title}, {GENERAL_CONFIG['parish_name']}, {loc_full}.",
-                     f"1 _SUBQ {GENERAL_CONFIG['parish_name']} - {loc_full}.",
-                     f"1 _BIBL {GENERAL_CONFIG['parish_name']}. {v_title}. "
-                     f"{GENERAL_CONFIG['parish_name']}, {loc_full}."]
+                     f"1 TITL {cfg.parish_name}, , {cfg.register_name}{v_clause} ; "
+                     f"{v_title}, {cfg.parish_name}, {loc_full}.",
+                     f"1 _SUBQ {cfg.parish_name} - {loc_full}.",
+                     f"1 _BIBL {cfg.parish_name}. {v_title}. "
+                     f"{cfg.parish_name}, {loc_full}."]
 
-            block.extend(_ACTIVE_PROFILE.volume_source_detail_fields(v_clause))
-            block.extend(Utils.weblink_lines(COLLECTION_URL, COLLECTION_NAME, "RM"))
+            block.extend(cfg.profile.volume_source_detail_fields(v_clause, cfg))
+            block.extend(Utils.weblink_lines(cfg.collection_url, cfg.collection_name, "RM"))
         else:
             block = [f"0 {s_id} SOUR",
-                     f"1 TITL {GENERAL_CONFIG['parish_name']}, {v_title}",
-                     f"1 AUTH {GENERAL_CONFIG['parish_name']}",
-                     f"1 PUBL {REPOSITORY_LOC}: {REPOSITORY}", f"1 REFN {s_id.replace('@S', '').replace('@', '')}"]
-            block.extend(Utils.weblink_lines(COLLECTION_URL, COLLECTION_NAME, "FTM"))
+                     f"1 TITL {cfg.parish_name}, {v_title}",
+                     f"1 AUTH {cfg.parish_name}",
+                     f"1 PUBL {cfg.repository_loc}: {cfg.repository}",
+                     f"1 REFN {s_id.replace('@S', '').replace('@', '')}"]
+            block.extend(Utils.weblink_lines(cfg.collection_url, cfg.collection_name, "FTM"))
 
         sour_lines.extend(block)
 
     return sour_lines
 
 
-def build_gedcom_from_general(json_data: dict, target_software: str) -> str:
+def build_gedcom_from_general(json_data: dict, target_software: str, cfg: "GeneralRunConfig") -> str:
     """Main builder orchestrating the conversion from the loaded JSON to a raw GEDCOM string."""
     now = datetime.datetime.now()
     gedcom_date = now.strftime('%d %b %Y').upper()
 
     ged = [
         "0 HEAD",
-        f"1 FILE {GENERAL_CONFIG['parish_file_name']}.ged",
+        f"1 FILE {cfg.parish_file_name}.ged",
         f"1 SOUR {Utils.SOFTWARE_NAME}",
         f"2 VERS {Utils.SOFTWARE_VERS}",
         f"2 NAME {Utils.SOFTWARE_NAME}",
@@ -1120,16 +1141,16 @@ def build_gedcom_from_general(json_data: dict, target_software: str) -> str:
 
     for sheet in json_data.get('sheets', []):
         meta = sheet.get('document_metadata', {}) or {}
-        vol = extract_volume(sheet)
+        vol = extract_volume(sheet, cfg)
         vols_used.add(vol)
 
-        media_uid = generate_media_uid(meta, vol)
+        media_uid = generate_media_uid(meta, vol, cfg)
         file_name = Utils.clean_val(meta.get('file_name'))
 
-        media_title = _ACTIVE_PROFILE.media_caption(sheet, vol, Utils.clean_val(meta.get('pages')))
+        media_title = cfg.profile.media_caption(sheet, vol, Utils.clean_val(meta.get('pages')), cfg)
 
         if media_uid not in printed_media:
-            file_path = Utils.safe_path(IMAGE_DIR, file_name)
+            file_path = Utils.safe_path(cfg.image_dir, file_name)
             form_type = Utils.clean_val(meta.get('file_type', 'jpg')).lower()
             if form_type == 'jpeg':
                 form_type = 'jpg'
@@ -1162,13 +1183,13 @@ def build_gedcom_from_general(json_data: dict, target_software: str) -> str:
             for part in rec.get('participants', []):
                 if part.get('role_semantic') == 'commissioner':
                     continue
-                uid = generate_uid(rec, part, vol)
+                uid = generate_uid(rec, part, vol, cfg)
                 if uid in printed_indis:
                     continue
                 printed_indis.add(uid)
 
                 indi_block, t_block, flagged, folder = build_individual(uid, rec, part, vol, media_uid, gedcom_date,
-                                                                        any_review, target_software)
+                                                                        any_review, target_software, cfg)
 
                 ged.extend(indi_block)
                 if t_block and folder:
@@ -1177,7 +1198,7 @@ def build_gedcom_from_general(json_data: dict, target_software: str) -> str:
                 if flagged:
                     review_count += 1
 
-            fam_recs.extend(build_family(rec, vol, media_uid, target_software))
+            fam_recs.extend(build_family(rec, vol, media_uid, target_software, cfg))
 
     ged.extend(fam_recs)
     ged.extend(task_recs)
@@ -1188,8 +1209,8 @@ def build_gedcom_from_general(json_data: dict, target_software: str) -> str:
 
     ged.extend(media_recs)
     ged.extend(get_source_root(target_software))
-    ged.extend(get_volume_sources(vols_used, target_software))
-    ged.extend(_ACTIVE_PROFILE.resolve_source_templates(json_data, target_software))
+    ged.extend(get_volume_sources(vols_used, target_software, cfg))
+    ged.extend(cfg.profile.resolve_source_templates(json_data, target_software, cfg))
 
     ged.append("0 TRLR")
 
@@ -1199,47 +1220,46 @@ def build_gedcom_from_general(json_data: dict, target_software: str) -> str:
     return "\n".join(ged)
 
 
-def apply_collection_metadata(data: dict) -> None:
-    global CALL_NUMBER, COLLECTION_URL, COLLECTION_NAME, REPOSITORY, REPOSITORY_LOC, IMAGE_DIR
+def apply_collection_metadata(data: dict, cfg: "GeneralRunConfig") -> None:
     cm = data.get("collection_metadata", {})
     if cm:
-        CALL_NUMBER = cm.get("CALL_NUMBER", CALL_NUMBER)
-        COLLECTION_URL = cm.get("COLLECTION_URL", COLLECTION_URL)
-        COLLECTION_NAME = cm.get("COLLECTION_NAME", COLLECTION_NAME)
-        REPOSITORY = cm.get("REPOSITORY", REPOSITORY)
-        REPOSITORY_LOC = cm.get("REPOSITORY_LOC", REPOSITORY_LOC)
+        cfg.call_number = cm.get("CALL_NUMBER", cfg.call_number)
+        cfg.collection_url = cm.get("COLLECTION_URL", cfg.collection_url)
+        cfg.collection_name = cm.get("COLLECTION_NAME", cfg.collection_name)
+        cfg.repository = cm.get("REPOSITORY", cfg.repository)
+        cfg.repository_loc = cm.get("REPOSITORY_LOC", cfg.repository_loc)
 
-        GENERAL_CONFIG['citation_text'] = cm.get("CITATION_TEXT", GENERAL_CONFIG['citation_text'])
-        GENERAL_CONFIG['citation_detail'] = cm.get("CITATION_DETAIL", GENERAL_CONFIG['citation_detail'])
-        GENERAL_CONFIG['register_name'] = cm.get("REGISTER_NAME", GENERAL_CONFIG['register_name'])
-        GENERAL_CONFIG['register_source_id'] = cm.get("REGISTER_SOURCE_ID", GENERAL_CONFIG['register_source_id'])
-        GENERAL_CONFIG['volume_title'] = cm.get("VOLUME_TITLE", GENERAL_CONFIG['volume_title'])
-        GENERAL_CONFIG['volume_num'] = cm.get("VOLUME_NUM", GENERAL_CONFIG['volume_num'])
+        cfg.citation_text = cm.get("CITATION_TEXT", cfg.citation_text)
+        cfg.citation_detail = cm.get("CITATION_DETAIL", cfg.citation_detail)
+        cfg.register_name = cm.get("REGISTER_NAME", cfg.register_name)
+        cfg.register_source_id = cm.get("REGISTER_SOURCE_ID", cfg.register_source_id)
+        cfg.volume_title = cm.get("VOLUME_TITLE", cfg.volume_title)
+        cfg.volume_num = cm.get("VOLUME_NUM", cfg.volume_num)
 
     record_type_name = data.get("record_type_name", "")
     if record_type_name:
-        IMAGE_DIR = Utils.safe_path(Utils.GENEALOGY_DIR, os.getenv("MEDIA_DIR", "Media"), record_type_name)
+        cfg.image_dir = Utils.safe_path(Utils.GENEALOGY_DIR, os.getenv("MEDIA_DIR", "Media"), record_type_name)
 
 
-def apply_extracted_parish_name(data: dict) -> None:
+def apply_extracted_parish_name(data: dict, cfg: "GeneralRunConfig") -> None:
     for sheet in data.get("sheets", []):
         source_name = (sheet.get("document_metadata") or {}).get("source_name")
         source_val = str(source_name) if source_name is not None else ""
         if source_val.strip():
-            GENERAL_CONFIG["parish_name"] = source_val.strip()
+            cfg.parish_name = source_val.strip()
             return
 
-    if not GENERAL_CONFIG.get('parish_name') and data.get('record_type_name') == 'Scrip':
-        collection = Utils.clean_val(COLLECTION_NAME) or Utils.clean_val(
+    if not cfg.parish_name and data.get('record_type_name') == 'Scrip':
+        collection = Utils.clean_val(cfg.collection_name) or Utils.clean_val(
             data.get('collection_title')) or 'Scrip Records'
-        GENERAL_CONFIG['parish_name'] = Utils.clean_val(REPOSITORY) or 'Library and Archives Canada'
-        GENERAL_CONFIG['register_name'] = collection
-        GENERAL_CONFIG['volume_title'] = collection
-        GENERAL_CONFIG['parish_location'] = Utils.clean_val(REPOSITORY_LOC) or 'Ottawa, ON'
+        cfg.parish_name = Utils.clean_val(cfg.repository) or 'Library and Archives Canada'
+        cfg.register_name = collection
+        cfg.volume_title = collection
+        cfg.parish_location = Utils.clean_val(cfg.repository_loc) or 'Ottawa, ON'
 
 
-def apply_resolved_source_id(data: dict) -> None:
-    explicit = str(GENERAL_CONFIG.get("register_source_id", "")).strip()
+def apply_resolved_source_id(data: dict, cfg: "GeneralRunConfig") -> None:
+    explicit = str(cfg.register_source_id or "").strip()
     if explicit and explicit != "1":
         return
 
@@ -1247,41 +1267,40 @@ def apply_resolved_source_id(data: dict) -> None:
     cc = citation.get("collection_id")
     cc_val = str(cc) if cc is not None else ""
     if cc_val.strip():
-        GENERAL_CONFIG["register_source_id"] = cc_val.strip()
-        GENERAL_CONFIG["platform_source_id"] = cc_val.strip()
+        cfg.register_source_id = cc_val.strip()
+        cfg.platform_source_id = cc_val.strip()
         return
 
     apid = Utils.APID_DB or citation.get("apid_db")
     apid_val = str(apid) if apid is not None else ""
     if apid_val.strip():
-        GENERAL_CONFIG["register_source_id"] = apid_val.strip()
-        GENERAL_CONFIG["platform_source_id"] = apid_val.strip()
+        cfg.register_source_id = apid_val.strip()
+        cfg.platform_source_id = apid_val.strip()
         return
 
     record_type_name = data.get("record_type_name") or "Church"
-    collection_name = GENERAL_CONFIG.get("parish_name", "")
-    GENERAL_CONFIG["register_source_id"] = str(Utils.resolve_source_id(record_type_name, collection_name))
+    collection_name = cfg.parish_name or ""
+    cfg.register_source_id = str(Utils.resolve_source_id(record_type_name, collection_name))
 
 
 def run_general_flavor(data: dict, profile: Profile) -> None:
-    set_active_profile(profile)
-    global REPOSITORY, REPOSITORY_LOC
-    apply_collection_metadata(data)
+    cfg = GeneralRunConfig(profile=profile)
+    apply_collection_metadata(data, cfg)
 
     default_repo, default_repo_loc = profile.repository_defaults()
-    REPOSITORY = REPOSITORY or default_repo
-    REPOSITORY_LOC = REPOSITORY_LOC or default_repo_loc
+    cfg.repository = cfg.repository or default_repo
+    cfg.repository_loc = cfg.repository_loc or default_repo_loc
 
     default_output_name = profile.default_gedcom_output_name()
     if (default_output_name and Utils.GEDCOM_OUTPUT_NAME == "Family_Register.ged"
             and not os.getenv("GEDCOM_OUTPUT_NAME", "").strip()):
         Utils.GEDCOM_OUTPUT_NAME = default_output_name
 
-    apply_extracted_parish_name(data)
-    apply_resolved_source_id(data)
+    apply_extracted_parish_name(data, cfg)
+    apply_resolved_source_id(data, cfg)
 
     for software in Utils.resolve_gedcom_output_targets():
-        gedcom_text = build_gedcom_from_general(data, software)
+        gedcom_text = build_gedcom_from_general(data, software, cfg)
         final_path = Utils.resolve_gedcom_output_path(software)
         final_path.write_text(gedcom_text, encoding="utf-8")
         print(f"Successfully generated {final_path}")

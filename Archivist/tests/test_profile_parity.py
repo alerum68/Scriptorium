@@ -45,13 +45,6 @@ def test_default_gedcom_output_name_only_set_for_scrip():
 
 
 def test_dynamic_source_id_scrip_has_no_register_prefix():
-    orig = General.GENERAL_CONFIG.get('register_source_id')
-    try:
-        General.GENERAL_CONFIG['register_source_id'] = '1042'
-        assert GENERAL.dynamic_source_id("3") == "@S1042003@"
-        assert SCRIP.dynamic_source_id("3") == "@S003@"
-    finally:
-        if orig is not None:
-            General.GENERAL_CONFIG['register_source_id'] = orig
-        else:
-            General.GENERAL_CONFIG.pop('register_source_id', None)
+    cfg = General.GeneralRunConfig(register_source_id='1042')
+    assert GENERAL.dynamic_source_id("3", cfg) == "@S1042003@"
+    assert SCRIP.dynamic_source_id("3", cfg) == "@S003@"
