@@ -191,8 +191,16 @@ def download_images(manifest_data: Dict[str, Any], out_dir: str, roll_num: str,
     MASTER_DB reset/first-time run still ends up fully seeded. See the
     Voyageur-Parish-Scrip-scaffold design spec. Returns a {canvas number: error} dict of
     any canvases that failed to download - a failure is tracked and reported, not just
-    printed and forgotten, mirroring download_volume_assets's failed_pids."""
+    printed and forgotten, mirroring download_volume_assets's failed_pids.
+
+    save_master_db is flushed every FLUSH_EVERY_N canvases rather than after each one -
+    for a 720-page reel, writing the entire (progressively larger) master_data dict to
+    disk on every single canvas is the same re-serialize-the-whole-file cost that
+    download_volume_assets_multiworker's docstring calls out. A guaranteed final flush
+    after the loop means nothing is lost even if the last batch is smaller than N."""
     from Commissioner.record_registry import build_empty_sheet, validate_collection_softly
+
+    FLUSH_EVERY_N = 10
 
     if "sequences" in manifest_data and manifest_data["sequences"]:
         canvases = manifest_data["sequences"][0].get("canvases", [])
@@ -212,6 +220,7 @@ def download_images(manifest_data: Dict[str, Any], out_dir: str, roll_num: str,
     session = requests.Session()
     master_data = load_master_db(master_db_path, collection_title, document_type)
     failed: Dict[str, str] = {}
+    unflushed = 0
 
     for i, canvas in enumerate(canvases, 1):
         try:
@@ -254,11 +263,17 @@ def download_images(manifest_data: Dict[str, Any], out_dir: str, roll_num: str,
             new_sheet = build_empty_sheet(filename, "jpg", page_id=page_id)
             append_scaffold_sheets(master_data, [new_sheet])
             validate_collection_softly(master_data, document_type, collection_title)
-            save_master_db(master_db_path, master_data)
+            unflushed += 1
+            if unflushed >= FLUSH_EVERY_N:
+                save_master_db(master_db_path, master_data)
+                unflushed = 0
 
         except Exception as e:
             print(f"\n[Warning] Failed to download image {i}: {e}")
             failed[str(i)] = str(e)
+
+    if unflushed:
+        save_master_db(master_db_path, master_data)
 
     if failed:
         print(f"\n[Warning] {len(failed)} image(s) failed to download: {', '.join(sorted(failed))}")

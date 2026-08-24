@@ -539,6 +539,52 @@ def test_download_images_writes_scaffold_sheet_per_canvas(monkeypatch, tmp_path)
     assert master_data["sheets"][0]["page_id"] == "roll1_0001"
 
 
+def test_download_images_batches_master_db_flushes(monkeypatch, tmp_path):
+    """PERF-2: save_master_db must not be called once per canvas - for a 720-page reel
+    that re-serializes the entire (growing) master_data dict 720 times. It should flush
+    every FLUSH_EVERY_N canvases plus once more at the end for any remainder."""
+    manifest_data = {
+        "sequences": [{"canvases": [
+            {"images": [{"resource": {"@id": f"https://example.com/img{i}.jpg"}}]}
+            for i in range(1, 13)
+        ]}],
+    }
+
+    class FakeResponse:
+        content = b"fake-image-bytes"
+
+        def raise_for_status(self):
+            pass
+
+    class FakeSession:
+        def get(self, url, timeout=None):
+            _ = (url, timeout)
+            return FakeResponse()
+
+    monkeypatch.setattr(LAC.requests, "Session", lambda: FakeSession())
+
+    out_dir = str(tmp_path / "images")
+    os.makedirs(out_dir, exist_ok=True)
+    master_db_path = str(tmp_path / "parish_register.json")
+
+    real_save = LAC.save_master_db
+    call_count = 0
+
+    def counting_save(path, data):
+        nonlocal call_count
+        call_count += 1
+        real_save(path, data)
+
+    monkeypatch.setattr(LAC, "save_master_db", counting_save)
+
+    LAC.download_images(manifest_data, out_dir, "roll1", master_db_path, "Parish", "Test Collection")
+
+    assert call_count == 2
+
+    master_data = LAC.load_master_db(master_db_path, "Test Collection", "Parish")
+    assert len(master_data["sheets"]) == 12
+
+
 def test_download_images_tracks_failure_and_continues_with_remaining_canvases(monkeypatch, tmp_path):
     manifest_data = {
         "sequences": [{"canvases": [

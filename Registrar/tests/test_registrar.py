@@ -315,6 +315,44 @@ def test_find_fuzzy_duplicates_verifies_family_matches():
     assert bool(matches_df.iloc[0]["Family_Verified"]) is True
 
 
+def test_find_fuzzy_duplicates_pass_two_prefilters_by_name_token_initial(monkeypatch):
+    """PERF-4: Pass 2 must not score every unknown-age record against every record in
+    the tree - it should prefilter to only those sharing a name-token initial letter
+    first. A record whose name shares no initial letter with the unknown-age record
+    should never reach fuzz.token_set_ratio at all."""
+    records = [
+        {
+            "PersonID": 1, "Given": "Joseph", "Surname": "Houghton",
+            "FullName": "Joseph Houghton", "BirthYear": 0, "RelativesList": [],
+        },
+        {
+            "PersonID": 2, "Given": "Joseph", "Surname": "Houghton",
+            "FullName": "Joseph Houghton", "BirthYear": 1815, "RelativesList": [],
+        },
+        {
+            # Birth year kept far outside MAX_AGE_GAP of PersonID 2's 1815 so Pass 1's
+            # sliding-window break also skips this pair - isolates the assertion to Pass 2.
+            "PersonID": 3, "Given": "Zelda", "Surname": "Quimby",
+            "FullName": "Zelda Quimby", "BirthYear": 1900, "RelativesList": [],
+        },
+    ]
+    df = pd.DataFrame(records)
+
+    scored_pairs = []
+    real_ratio = reg.fuzz.token_set_ratio
+
+    def counting_ratio(a, b):
+        scored_pairs.append((a, b))
+        return real_ratio(a, b)
+
+    monkeypatch.setattr(reg.fuzz, "token_set_ratio", counting_ratio)
+
+    matches_df = reg.find_fuzzy_duplicates(df, run_pass_two=True)
+
+    assert len(matches_df) == 1
+    assert not any("Quimby" in b or "Zelda" in b for _a, b in scored_pairs)
+
+
 def test_find_fuzzy_duplicates_respects_test_limit():
     """Specifying test_limit caps the number of known-age records processed in Pass 1 and skips Pass 2."""
     records = [

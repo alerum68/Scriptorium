@@ -203,6 +203,20 @@ def _build_match_record(score: int, family_match: bool, p1_id: int, p1: dict, p2
     }
 
 
+def _index_by_name_token_initial(records: List[dict]) -> Dict[str, List[dict]]:
+    """Buckets records by the lowercased first letter of each whitespace-separated
+    token in FullName. Pass 2 uses this to prefilter its N x M scan down to
+    plausible candidates only, instead of scoring every unknown-age record against
+    every record in the tree. Safe under FUZZY_THRESHOLD_STRICT (95): a
+    token_set_ratio that high requires near-identical tokens, so two names that
+    would actually match virtually always share at least one token's first letter."""
+    index: Dict[str, List[dict]] = {}
+    for rec in records:
+        for letter in {tok[0].lower() for tok in rec['FullName'].split() if tok}:
+            index.setdefault(letter, []).append(rec)
+    return index
+
+
 def find_fuzzy_duplicates(df: pd.DataFrame, run_pass_two: bool = False,
                           test_limit: Optional[int] = None
                           ) -> pd.DataFrame:
@@ -272,6 +286,7 @@ def find_fuzzy_duplicates(df: pd.DataFrame, run_pass_two: bool = False,
     if run_pass_two and not test_limit:
         total_unknown = len(unknown_records)
         print(f" - Pass 2: Comparing {total_unknown} records missing birth years (strict name matching)...")
+        name_index = _index_by_name_token_initial(all_records)
         for i in range(total_unknown):
             p1 = unknown_records[i]
             p1_name = p1['FullName']
@@ -280,9 +295,12 @@ def find_fuzzy_duplicates(df: pd.DataFrame, run_pass_two: bool = False,
 
             print(f"\r   Processing {i + 1}/{total_unknown}: {p1_name[:30]:<30}", end="", flush=True)
 
-            for j in range(len(all_records)):
-                p2 = all_records[j]
+            candidates: Dict[int, dict] = {}
+            for letter in {tok[0].lower() for tok in p1_name.split() if tok}:
+                for p2 in name_index.get(letter, []):
+                    candidates[p2['PersonID']] = p2
 
+            for p2 in candidates.values():
                 # Prevent matching a person to themselves and duplicate pairs
                 if p1_id >= p2['PersonID']:
                     continue

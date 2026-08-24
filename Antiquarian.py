@@ -20,6 +20,8 @@ import yaml
 from dotenv import dotenv_values
 from Commissioner.record_registry import load_pmt_front_matter, prompt_search_dirs
 from Commissioner.winio import replace_with_retry
+from Commissioner.assets.app_icons import APP_ICON_PNG_32, APP_ICON_PNG_64
+from Commissioner.assets.help_content import HELP_TEXTS
 
 BASE_DIR = Path(__file__).resolve().parent
 APP_VERSION = "0.07.00"
@@ -603,93 +605,6 @@ class ConsoleRedirector:
         self.text_widget.after(50, self.update_gui)
 
 
-# App window/taskbar icon (a stylized pen nib), embedded as base64 PNG data rather than a
-# file under Commissioner/assets/ - tkinter's iconphoto() takes PhotoImage objects built straight from
-# in-memory data, so the icon has no external file to go missing or need bundling. Two
-# sizes are supplied; Tk picks whichever fits a given context (taskbar, alt-tab, title bar).
-_APP_ICON_PNG_32 = (
-    "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"
-    "TkSuQmCC"
-)
-
-_APP_ICON_PNG_64 = (
-    "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"
-)
-
-
 class Antiquarian(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -703,7 +618,7 @@ class Antiquarian(ctk.CTk):
         # defensively since window-icon support varies by platform/Tk build and this is
         # purely cosmetic - never worth failing startup over.
         try:
-            self._app_icons = [tk.PhotoImage(data=_APP_ICON_PNG_32), tk.PhotoImage(data=_APP_ICON_PNG_64)]
+            self._app_icons = [tk.PhotoImage(data=APP_ICON_PNG_32), tk.PhotoImage(data=APP_ICON_PNG_64)]
             self.iconphoto(True, *self._app_icons)
         except Exception:
             pass
@@ -747,88 +662,7 @@ class Antiquarian(ctk.CTk):
         self.debug_file_var = ctk.StringVar(value="")
         self.tabs_built = set()
 
-        self.help_texts = {"Voyageur": "Welcome to Voyageur!\n\n"
-                           "Voyageur is the Gather step: it talks to a repository's website and "
-                           "brings back whatever it has, images plus any index data the site "
-                           "already provides.\n\n"
-                           "How to use:\n"
-                           "1. Pick which repository to gather from in the dropdown (Ancestry, "
-                           "FamilySearch, or LAC for now, more to come).\n"
-                           "2. Paste the record/collection URL for that repository into its "
-                           "settings box.\n"
-                           "3. Click the gather button. Ancestry and FamilySearch open your "
-                           "browser and drive a Tampermonkey script there; LAC downloads "
-                           "directly.\n\n"
-                           "Once gathering finishes, head to Paleographer (if the images need AI "
-                           "transcription) or straight to Archivist to build your GEDCOM.\n\n"
-                           "\"Gather and Send to Archivist\" runs the gather and then automatically "
-                           "builds the GEDCOM as soon as it finishes cleanly, in one click - skip "
-                           "this if the images still need Paleographer's AI transcription first.",
-                           "Paleographer": "Welcome to Paleographer!\n\n"
-                           "Paleographer is the Analysis and Enrichment step: it reads historical document images "
-                           "and turns them into structured data using AI, and provides metadata enrichment and "
-                           "collection partitioning for Scrip datasets.\n\n"
-                           "How to use:\n"
-                           "1. Pick a record type from the dropdown (Parish, Scrip, or any other "
-                           ".pmt file you've added to Paleographer/prompts).\n"
-                           "2. Place your historical document images or PDFs into that type's "
-                           "designated folder in your project.\n"
-                           "3. Ensure you have your AI API key saved in the Global Settings.\n"
-                           "4. Click 'Run Analysis (API)' to transcribe. For Scrip records, use 'Enrich Metadata' "
-                           "to fetch live LAC catalog metadata, 'Partition Collections' to split records into "
-                           "official LAC archival series files, or 'Resolve Names' to cross-reference and "
-                           "deduplicate participant names across records.\n\n"
-                           "When finished, head to Archivist to build your GEDCOM.\n\n"
-                           "Note: If the AI gets stuck or runs out of memory, try clicking "
-                           "'Clear Cache'.",
-                           "Archivist": "Welcome to Archivist!\n\n"
-                           "Archivist is the Create step: the single place that turns a finished "
-                           "JSON file, from Voyageur's Gather or Paleographer's Analysis, into a "
-                           "GEDCOM file you can import.\n\n"
-                           "How to use:\n"
-                           "1. Check your settings (image folder, location overrides, etc).\n"
-                           "2. Click 'Generate GEDCOM'. Archivist reads whichever JSON is currently "
-                           "configured, automatically detects what kind of record it holds "
-                           "(census, church/parish, scrip...), and builds the right GEDCOM without "
-                           "you needing to pick a mode.",
-                           "Registrar": "Welcome to the Registrar!\n\n"
-                           "How to use:\n"
-                           "This tool scans your RootsMagic tree for people who might be "
-                           "duplicated, using smart name and age matching.\n\n"
-                           "1. CRITICAL: Make sure RootsMagic is completely CLOSED before running "
-                           "this.\n"
-                           "2. Click 'Run Script' and follow the prompts in the console below.\n"
-                           "3. The tool will safely create 'Review Merge' tasks inside your "
-                           "RootsMagic database. Open RootsMagic and check your Task List to "
-                           "see the results!",
-                           "Gazetteer": "Welcome to the Gazetteer!\n\n"
-                                           "How to use:\n"
-                                           "This tool looks at the dates of events in your tree and automatically "
-                                           "corrects the County or Territory names to match historical boundaries "
-                                           "for that exact year.\n\n"
-                                           "1. CRITICAL: Make sure RootsMagic is completely CLOSED before running "
-                                           "this.\n"
-                                           "2. Make sure you have backed up your tree.\n"
-                                           "3. Click 'Run Script'. It will update the display names of your places "
-                                           "safely without breaking your maps or tracking IDs.",
-                           "PDFix": "Welcome to PDFix!\n\n"
-                           "This tool losslessly shrinks the file size of every PDF in a folder (and its "
-                           "subfolders), by removing dead internal structure and re-compressing streams. "
-                           "It never rescales embedded image resolution.\n\n"
-                           "1. Set your PDF Scan Folder, relative to your Base Media Directory.\n"
-                           "2. Leave 'Create Backup' on unless you're confident - it rewrites PDFs in "
-                           "place.\n"
-                           "3. Click 'Run Script' and follow along in the console below.",
-                           "Global Settings": "Welcome to Global Settings!\n\n"
-                                              "How to use:\n"
-                                              "These are the master settings shared across all of your tools.\n\n"
-                                              "1. Set your 'GENEALOGY_DIR' first. This is the main folder for your "
-                                              "genealogy files. All other folder paths build off of this one.\n"
-                                              "2. Add your AI API Key here so the AI transcription tool can "
-                                              "function.\n"
-                                              "3. Update your name and organization so the GEDCOM files properly "
-                                              "credit your research.\n"
-                                              "4. Don't forget to click 'Save Global Config' when you make changes!"}
+        self.help_texts = HELP_TEXTS
 
         self.tab_builders: Dict[str, Callable[[ctk.CTkFrame], None]] = {"Voyageur": self._build_tab_voyageur,
                                                                         "Paleographer": self._build_tab_paleographer,
