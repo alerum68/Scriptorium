@@ -16,6 +16,11 @@ This document outlines environment setup, testing standards, linter rules, and c
    ```bash
    pip install -r requirements.txt
    ```
+   `requirements.txt` is a fully-pinned lockfile (direct and transitive versions) generated
+   from `requirements.in` via `pip-tools` - see the header comment in `requirements.txt` for
+   the regenerate command. Add `-r requirements-optional.txt` if you need Voyageur's
+   browser-automation code paths (Playwright-driven Keystone queries, CDP cookie reading) -
+   neither is required for the rest of the app.
 
 ---
 

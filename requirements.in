@@ -1,0 +1,26 @@
+beautifulsoup4==4.15.0
+cloudscraper==1.2.71
+customtkinter==6.0.0
+geopandas==1.1.4
+google-genai==2.10.0
+lxml==6.1.1
+pandas==3.0.3
+pdfplumber==0.11.10
+pillow==12.3.0
+pydantic==2.13.4
+pymupdf==1.28.0
+python-dotenv==1.2.2
+pyyaml==6.0.3
+requests==2.34.2
+shapely==2.1.2
+thefuzz==0.22.1
+tqdm==4.66.5
+watchdog==6.0.0
+titlecase==2.4.1
+pypdf==4.2.0
+jsonschema==4.26.0
+# Test-gate deps (AGENTS.md: python -m pytest / python -m pycodestyle)
+pytest==9.1.1
+pycodestyle==2.14.0
+flake8==7.3.0
+requests-mock==1.12.1

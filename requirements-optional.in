@@ -1,0 +1,15 @@
+# Optional extras (HYG-5): neither package is required for the app to run. Both are
+# imported lazily, inside a try/except ImportError, only by the narrow Voyageur code
+# paths that need them - installing the base requirements.txt alone leaves those paths
+# gracefully degraded (HBCA.py's Keystone browser query) or clearly erroring with an
+# install hint (lac_client.py's CDP cookie reading), never breaking the rest of the app.
+#
+# Install with: pip install -r requirements.txt -r requirements-optional.txt
+
+# HBCA.py: headless Playwright/Chromium session for querying Keystone's MINISIS search,
+# which requires a live browser session to preserve a session-bound form token.
+playwright==1.62.0
+
+# lac_client.py: reads live session cookies out of a running Chrome/Edge instance over
+# the Chrome DevTools Protocol, for LAC cookie-based auth without manual copy-pasting.
+websocket-client==1.9.0
