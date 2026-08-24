@@ -2,6 +2,11 @@
 
 Antiquarian is structured as a pipeline with four primary operational stages and a centralized domain-validation core.
 
+> This page is a module-by-module map of what lives where. For the cross-cutting
+> runtime contracts - `.env` precedence, the frozen-build `PROGRAM_DIR`/`APP_DIR`
+> distinction, the `runpy` self-relaunch router, `.pmt` search tiers, and the
+> Voyageur-gathers/Archivist-decodes split - see `ARCHITECTURE.md` at the repo root.
+
 ---
 
 ## High-Level System Architecture

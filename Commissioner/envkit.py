@@ -3,9 +3,13 @@
 Each tool used to carry its own pair of load_dotenv() lines, and they disagreed on the
 override flag - some True, some False - so which file won depended on which tool ran
 and on whatever was already in the process environment. Standardized here once: the
-repo root's global .env loads first, then the tool's own subfolder .env loads second,
-both with override=True. Net precedence: tool .env > global .env > inherited
-environment variables.
+tool's own subfolder .env loads first, then the repo root's global .env loads second,
+both at every caller's actual default of override=False (no caller in this codebase
+passes True). load_dotenv(override=False) only fills in a key that isn't already set,
+so net precedence is: already-set environment variables (e.g. a CI runner's exports,
+or ARCH-4's curated per-tool env passed to a launched subprocess) > tool .env > global
+.env. Pass override=True explicitly if a given caller ever needs .env files to win
+over an inherited variable instead.
 """
 from pathlib import Path
 
