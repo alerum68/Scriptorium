@@ -80,6 +80,19 @@ When Paleographer transcribes an image, `save_master_db()` merges the analyzed s
 
 ---
 
+## Numeric Field Normalization
+
+Before a Voyageur gatherer writes a payload to disk (a standalone gather file in `A.py`/`FS.py`, or a checkpointed Master DB save in `HBCA.py`/`LAC.py`), `Commissioner.textutils.dynamic_zero_pad_all_except` walks the whole payload and zero-pads numeric-bearing fields (e.g. `family_number`, `line_number`, `claim_number`) to the widest value seen anywhere in that write, so lexicographic sort matches numeric order.
+
+This is an exclusion list, not an include list — new ID/reference fields get padded automatically. Fields exempted because padding would break matching, routing, or archival convention (not exhaustive; see `_PAD_EXCLUDED_FIELDS` in `Commissioner/textutils.py`):
+
+- **Matching keys**: `page_id`, `file_name`, `image_id`, `item_id` — padding would break the exact-match lookups the Merge Lifecycle above and download-resume dedup rely on.
+- **Routing/path fields**: `enumeration_district` (feeds `Archivist/Census.py`'s image directory path), `rg_series_code`, `commission_reference` (matched by exact substring in `Archivist/Scrip.py`'s template routing).
+- **Citation fields rendered unpadded by convention**: `folio`, `volume`, `reel_numbers`.
+- **Dates, amounts, names, and free text** generally.
+
+---
+
 ## Download Checkpoints
 
 Voyageur tracks gather progress in a `.checkpoint` JSON file stored alongside downloaded images:
