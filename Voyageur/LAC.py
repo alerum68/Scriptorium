@@ -47,6 +47,7 @@ from Commissioner.jsonio import (  # noqa: E402
     save_checkpoint as jsonio_save_checkpoint,
 )
 from Commissioner.record_registry import resolve_generic_setting  # noqa: E402
+from Commissioner.textutils import dynamic_zero_pad_all_except  # noqa: E402
 
 # ==========================================
 # PATH & CONFIG SETUP
@@ -94,6 +95,7 @@ def load_master_db(master_db_path: str, collection_title: str, record_type_name:
 
 
 def save_master_db(master_db_path: str, master_data: Dict[str, Any]) -> None:
+    dynamic_zero_pad_all_except(master_data)
     atomic_write_json(master_db_path, master_data, indent=2, ensure_ascii=False)
 
 

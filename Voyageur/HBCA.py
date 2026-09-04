@@ -61,6 +61,7 @@ from Commissioner.jsonio import (  # noqa: E402
     save_checkpoint as jsonio_save_checkpoint,
 )
 from Commissioner.record_registry import resolve_generic_setting  # noqa: E402, F401
+from Commissioner.textutils import dynamic_zero_pad_all_except  # noqa: E402
 
 # ==========================================
 # PATH & CONFIG RESOLUTION
@@ -695,6 +696,7 @@ def append_scaffold_sheet(master_db_path: Path, sheet: dict) -> None:
         data.setdefault("sheets", []).append(sheet)
 
     validate_collection_softly(data, "HBCA", str(master_db_path))
+    dynamic_zero_pad_all_except(data)
     atomic_write_json(master_db_path, data, indent=2, ensure_ascii=False)
 
 

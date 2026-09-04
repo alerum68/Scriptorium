@@ -15,6 +15,7 @@ Stdlib-only by design, so every standalone-runnable tool can import it safely.
 from __future__ import annotations
 
 import re
+from typing import Any
 
 __all__ = [
     "clean_text",
@@ -22,6 +23,8 @@ __all__ = [
     "normalize_whitespace",
     "sanitize_quotes",
     "sanitize_image_filename",
+    "pad_string_digits",
+    "dynamic_zero_pad_all_except",
 ]
 
 # Zero-width / invisible characters that survive JSON round-trips and quietly
@@ -92,3 +95,88 @@ def sanitize_image_filename(image_id: str) -> str:
     if not image_id:
         return ""
     return re.sub(r"[^a-zA-Z0-9_-]", "_", str(image_id).strip()) + ".jpg"
+
+
+# Fields a blanket zero-padding sweep must never touch. Grouped by why padding
+# would break them, not just what they're named -- see dynamic_zero_pad_all_except.
+_PAD_EXCLUDED_FIELDS = {
+    # File/record linkers: padding breaks exact-match lookups against files on
+    # disk, dedup sets, and DB joins (e.g. "42.jpg" no longer matches "042.jpg").
+    "image_id", "item_id", "record_id", "page_id", "dbId", "collection_id",
+    "apid_db", "file_name",
+    # Web links: padding a path segment produces a dead URL.
+    "url", "collection_url", "repository_url", "fs_url", "ancestry_url", "image_url",
+    # Dates & years: "May 12, 1880" must not become "May 012, 1880".
+    "year", "census_year", "birth_year", "death_year", "event_date",
+    "application_date", "issue_date", "delivery_date", "date",
+    # Amounts & personal attributes: padding is semantically wrong in narrative
+    # display ("$0160", age "009").
+    "scrip_amount", "age", "calculated_age", "estimated_age", "birth_age",
+    # Names & relationships: numbered suffixes ("John Doe 3rd") aren't IDs.
+    "given_names", "surname", "std_given", "std_surname", "father_name", "mother_name",
+    "spouse_name", "name", "primary_name", "role", "relationship_to_head",
+    # Free text / locations: unstructured prose, addresses, place names.
+    "note", "notes", "summary", "package_summary", "transcription", "remarks",
+    "description", "occupation", "birth_place", "death_place", "residence",
+    "repository_loc", "pub_loc", "city", "county", "state", "country", "repository",
+    "publisher", "collection_name", "source_name", "source_location",
+    # Archival citation / routing fields: these are matched by exact substring
+    # against alphanumeric codes (Archivist/Scrip.py's select_scrip_template_id
+    # matches series_code against literals like "d-ii-8-a" and commission_reference
+    # by keyword) or rendered into citation text by convention unpadded (folio
+    # "12v", "Vol. 3"). enumeration_district also feeds the on-disk image
+    # directory path (Archivist/Census.py's location_parts) -- same file-linker
+    # risk as image_id/item_id above.
+    "enumeration_district", "rg_series_code", "commission_reference",
+    "folio", "volume", "reel_numbers",
+}
+
+
+def pad_string_digits(val: Any, width: int) -> str:
+    """Zero-pads every digit run in a string to width (e.g. "5" -> "005")."""
+    if not val:
+        return ""
+    return re.sub(r"\d+", lambda m: m.group(0).zfill(width), str(val))
+
+
+def dynamic_zero_pad_all_except(data: dict) -> None:
+    """
+    Zero-pads numeric-bearing fields to the max digit width seen for that field
+    name anywhere in `data`, mutating it in place. Every field is padded except
+    those in _PAD_EXCLUDED_FIELDS (an exclusion list, not an include list, so new
+    ID/reference fields get padded automatically without code changes here).
+
+    `data` should be the full payload being persisted in one write (a whole
+    gather file for Voyageur's per-run gatherers, or the whole accumulated
+    master DB dict for Voyageur's checkpoint-based gatherers) -- not a single
+    page or record -- so that widths are consistent across everything that
+    write touches.
+    """
+    max_lengths: dict[str, int] = {}
+
+    def find_max(obj: Any) -> None:
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if isinstance(v, (dict, list)):
+                    find_max(v)
+                elif k not in _PAD_EXCLUDED_FIELDS and v:
+                    for d in re.findall(r"\d+", str(v)):
+                        if len(d) > max_lengths.get(k, 0):
+                            max_lengths[k] = len(d)
+        elif isinstance(obj, list):
+            for item in obj:
+                find_max(item)
+
+    def apply_pad(obj: Any) -> None:
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if isinstance(v, (dict, list)):
+                    apply_pad(v)
+                elif k not in _PAD_EXCLUDED_FIELDS and k in max_lengths:
+                    obj[k] = pad_string_digits(v, max_lengths[k])
+        elif isinstance(obj, list):
+            for item in obj:
+                apply_pad(item)
+
+    find_max(data)
+    apply_pad(data)

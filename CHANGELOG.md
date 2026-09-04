@@ -8,6 +8,7 @@ cleanup with no new functionality.
 ## [Unreleased]
 
 ### Added
+- **Dynamic zero-padding for Voyageur gather output**: `Commissioner/textutils.py` gained `dynamic_zero_pad_all_except`, which zero-pads numeric ID/reference fields (e.g. `family_number`, `line_number`, `claim_number`) to the widest value seen across a whole gather run, so lexicographic sort matches numeric order. An explicit exclusion list keeps archival citation fields (`folio`, `volume`, `reel_numbers`), routing/matching fields (`enumeration_district`, `rg_series_code`, `commission_reference`), file/record linkers (`page_id`, `image_id`, etc.), dates, and free text untouched. Wired into `Voyageur/A.py`, `FS.py`, `HBCA.py`, and `LAC.py` at their write points, scoped to the whole file/master DB rather than a single page.
 - **Convention-based image directories**: Image source folders are now inferred automatically from the active prompt file name (`Media/<prompt_name>` — e.g. `Media/Parish`, `Media/Scrip`, `Media/Census`, `Media/HBCA`). No user configuration required.
 - **Scrip tab gets its own GEDCOM setting**: `SCRIP_GEDCOM_NAME` added to the Scrip Information section in Paleographer settings, so Scrip and Parish each manage their own output files independently.
 - **HBCA Keystone toggles**: `HBCA_RESOLVE_KEYSTONE` and `HBCA_DOWNLOAD_KEYSTONE_MEDIA` now render as on/off toggle switches in the Voyageur settings UI.
